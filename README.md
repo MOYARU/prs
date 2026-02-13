@@ -7,7 +7,7 @@
 ╚═╝     ╚═╝  ╚═╝╚══════╝
 ```
 <p align="center">
-  <h1>PRS v1.6.0</h1>
+  <h1>PRS v1.8.0</h1>
   <h3>Passive Reconnaissance Scanner</h3>
   <p>
     <strong>Defensive-First Web Security Scanner</strong><br>
