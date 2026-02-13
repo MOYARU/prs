@@ -46,10 +46,8 @@ go build -o prs.exe
 prs example.com
 ```
 
-or
+or use makefile to build
 ```
-use makefile to build
-
 make
 
 make run
