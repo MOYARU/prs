@@ -99,7 +99,7 @@ prs https://example.com --json
 
 Run without target:
 ```bash
-prs
+./prs
 ```
 
 Available commands:
