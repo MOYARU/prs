@@ -10,12 +10,12 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context"
-	"github.com/MOYARU/PRS-project/internal/crawler"
-	"github.com/MOYARU/PRS-project/internal/engine"
-	msges "github.com/MOYARU/PRS-project/internal/messages"
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/crawler"
+	"github.com/MOYARU/prs/internal/engine"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 var (
@@ -205,9 +205,7 @@ ParamLoop:
 				}
 			}
 		}
-
-		// Boolean-Based Blind SQL Injection Check (New)
-		// 에러가 발생하지 않는 간단한 사이트(Blind)를 위해 참/거짓 쿼리의 응답 차이를 비교합니다.
+		// Boolean-based blind SQL injection check.
 		for _, bp := range booleanPayloads {
 			newParamsTrue := cloneParams(queryParams)
 			newParamsTrue.Set(param, originalValue+bp.True)
@@ -242,9 +240,8 @@ ParamLoop:
 				if diff < 0 {
 					diff = -diff
 				}
-				// 응답 길이 차이가 50바이트 이상이고 10% 이상 차이나면 취약점으로 간주
 				if diff > 50 && float64(diff) > float64(len(bodyTrue))*0.1 {
-					msg := msges.GetMessage("BLIND_SQLI_TIME_BASED") // 조치 방안은 동일하므로 메시지 재사용
+					msg := msges.GetMessage("BLIND_SQLI_TIME_BASED")
 					findings = append(findings, report.Finding{
 						ID:         "SQL_INJECTION_BOOLEAN",
 						Category:   string(checks.CategoryInputHandling),
@@ -296,7 +293,7 @@ func CheckReflectedXSS(ctx *ctxpkg.Context) ([]report.Finding, error) {
 		for _, tmpl := range xssPayloadTemplates {
 			payload := fmt.Sprintf(tmpl, canary)
 
-			// 기존 값 뒤에 추가(Append)하는 경우와 값을 완전히 교체(Replace)하는 경우 모두 테스트
+			// Test both appended and replaced payload variants.
 			testValues := []string{originalValue + payload, payload}
 			found := false
 
@@ -336,7 +333,7 @@ func CheckReflectedXSS(ctx *ctxpkg.Context) ([]report.Finding, error) {
 				}
 			}
 			if found {
-				break // 해당 파라미터에서 취약점 발견 시 다음 파라미터로 이동
+				break
 			}
 		}
 	}
@@ -520,7 +517,7 @@ func CheckSSTI(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	return findings, nil
 }
 
-// TODO: Stored XSS, DOM XSS, NoSQL, LDAP injection checks require more advanced techniques. 의 흔적 3
+// TODO: Stored XSS, DOM XSS, NoSQL, LDAP injection checks require more advanced techniques.
 
 func cloneParams(v url.Values) url.Values {
 	dst := make(url.Values, len(v))

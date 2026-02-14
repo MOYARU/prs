@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MOYARU/PRS-project/internal/app/ui"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context"
-	"github.com/MOYARU/PRS-project/internal/checks/registry"
-	msges "github.com/MOYARU/PRS-project/internal/messages"
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/app/ui"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/checks/registry"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 var progressMu sync.Mutex
@@ -38,9 +38,7 @@ func PrintScanProgress(current, total int, checkName, target string) {
 	if filled > width {
 		filled = width
 	}
-	bar := strings.Repeat("█", filled) + strings.Repeat("░", width-filled)
-
-	// \r로 커서를 앞으로 이동, \033[K로 줄의 나머지 내용 삭제
+	bar := strings.Repeat("#", filled) + strings.Repeat("-", width-filled)
 	fmt.Printf("\r [%s] %.0f%% | %s [%d/%d]: %s\033[K", bar, percentage, checkName, current, total, target)
 }
 
@@ -69,23 +67,23 @@ func PrintFindings(findings []report.Finding) {
 		case "HIGH":
 			severityColor = ui.ColorHigh
 		default:
-			severityColor = ui.ColorWhite // 기본 색상
+			severityColor = ui.ColorWhite
 		}
 
 		// Localize finding details
 		title, message, fix := f.Title, f.Message, f.Fix
 
 		fmt.Printf("\n%s[%s] (%s) %s%s\n", severityColor, f.Severity, f.Category, title, ui.ColorReset)
-		fmt.Printf("%s → %s%s\n", ui.ColorGray, message, ui.ColorReset)
+		fmt.Printf("%s - %s%s\n", ui.ColorGray, message, ui.ColorReset)
 		if f.Evidence != "" {
-			fmt.Printf("%s → %s: %s%s\n", ui.ColorGray, msges.GetUIMessage("ConsoleEvidenceLabel"), f.Evidence, ui.ColorReset)
+			fmt.Printf("%s - %s: %s%s\n", ui.ColorGray, msges.GetUIMessage("ConsoleEvidenceLabel"), f.Evidence, ui.ColorReset)
 		}
-		fmt.Printf("%s → %s: %s%s\n", ui.ColorGray, msges.GetUIMessage("ConsoleFixLabel"), fix, ui.ColorReset)
+		fmt.Printf("%s - %s: %s%s\n", ui.ColorGray, msges.GetUIMessage("ConsoleFixLabel"), fix, ui.ColorReset)
 		if f.Confidence != "" { // Only print confidence if it's provided
-			fmt.Printf("%s → %s: %s%s\n", ui.ColorGray, msges.GetUIMessage("ConsoleConfidenceLabel"), f.Confidence, ui.ColorReset)
+			fmt.Printf("%s - %s: %s%s\n", ui.ColorGray, msges.GetUIMessage("ConsoleConfidenceLabel"), f.Confidence, ui.ColorReset)
 		}
 		if len(f.AffectedURLs) > 0 {
-			fmt.Printf("%s → Affected URLs:%s\n", ui.ColorGray, ui.ColorReset)
+			fmt.Printf("%s - Affected URLs:%s\n", ui.ColorGray, ui.ColorReset)
 			for _, u := range f.AffectedURLs {
 				fmt.Printf("%s   - %s%s\n", ui.ColorGray, u, ui.ColorReset)
 			}
@@ -160,7 +158,7 @@ func SaveJSONReport(target string, scannedURLs []string, findings []report.Findi
 
 // PrintScanSummary prints a summary of all performed checks
 func PrintScanSummary(checkCounts map[string]int, checksRan map[string]bool, findingsByCheck map[string][]report.Finding) {
-	fmt.Println() // 진행률 표시줄 다음으로 넘기기 위해 줄바꿈 추가
+	fmt.Println()
 	fmt.Printf("\n%s%s%s\n", ui.ColorWhite, msges.GetUIMessage("ConsoleScanSummaryTitle"), ui.ColorReset)
 
 	for _, check := range registry.DefaultChecks() {
@@ -174,7 +172,6 @@ func PrintScanSummary(checkCounts map[string]int, checksRan map[string]bool, fin
 		}
 
 		var status, color string
-
 		if !ran {
 			if check.Mode == ctxpkg.Active {
 				status = msges.GetUIMessage("ConsoleActiveModeRequired")
@@ -195,9 +192,9 @@ func PrintScanSummary(checkCounts map[string]int, checksRan map[string]bool, fin
 		if count > 0 {
 			findings := findingsByCheck[check.ID]
 			for i, f := range findings {
-				connector := " 	├──"
+				prefix := " \t|--"
 				if i == len(findings)-1 {
-					connector = " 	└──"
+					prefix = " \t`--"
 				}
 
 				sevColor := ui.ColorWhite
@@ -212,7 +209,7 @@ func PrintScanSummary(checkCounts map[string]int, checksRan map[string]bool, fin
 					sevColor = ui.ColorInfo
 				}
 
-				fmt.Printf("%s %s[%s] %s%s\n", connector, sevColor, f.Severity, f.Title, ui.ColorReset)
+				fmt.Printf("%s %s[%s] %s%s\n", prefix, sevColor, f.Severity, f.Title, ui.ColorReset)
 			}
 		}
 	}

@@ -1,5 +1,5 @@
 /*
-Copyright © 2026 モヤル <rbffo@icloud.com>
+Copyright (c) 2026 moyaru <rbffo@icloud.com>
 */
 
 package cmd
@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/MOYARU/PRS-project/internal/app/interactive"
-	"github.com/MOYARU/PRS-project/internal/app/scan"
-	"github.com/MOYARU/PRS-project/internal/app/ui"
-	msges "github.com/MOYARU/PRS-project/internal/messages"
+	"github.com/MOYARU/prs/internal/app/interactive"
+	"github.com/MOYARU/prs/internal/app/scan"
+	"github.com/MOYARU/prs/internal/app/ui"
+	msges "github.com/MOYARU/prs/internal/messages"
 	"github.com/spf13/cobra"
 )
 

@@ -22,7 +22,6 @@ const (
 	ColorGreen  = "\033[92m" // Bright Green
 	ColorYellow = "\033[93m" // Bright Yellow
 
-	// 색상 추가
 	ColorInfo   = "\033[37m" // White/Light Gray for INFO
 	ColorLow    = "\033[34m" // Blue for LOW
 	ColorMedium = "\033[33m" // Yellow/Orange for MEDIUM
@@ -31,7 +30,8 @@ const (
 
 // PrintGradientAsciiArt prints the ASCII art with a Yellow to Blue gradient.
 func PrintGradientAsciiArt() {
-	lines := strings.Split(strings.TrimSpace(AsciiArt), "\n")
+	// Preserve left padding for visual alignment.
+	lines := strings.Split(strings.Trim(AsciiArt, "\n"), "\n")
 	for i, line := range lines {
 		ratio := float64(i) / float64(len(lines)-1)
 

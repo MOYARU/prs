@@ -8,7 +8,7 @@ import (
 	"strings"
 	"syscall"
 
-	msges "github.com/MOYARU/PRS-project/internal/messages"
+	msges "github.com/MOYARU/prs/internal/messages"
 	"golang.org/x/term"
 )
 
@@ -31,7 +31,7 @@ func SelectLanguage() {
 		Lang  msges.Language
 	}{
 		{"English", msges.LangEN},
-		{"한국어 (Korean)", msges.LangKO},
+		{"Korean (KO)", msges.LangKO},
 	}
 	selected := 0
 

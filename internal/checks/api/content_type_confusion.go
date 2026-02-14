@@ -6,18 +6,18 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context"
-	"github.com/MOYARU/PRS-project/internal/engine"
-	msges "github.com/MOYARU/PRS-project/internal/messages"
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/engine"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 func CheckContentTypeConfusion(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
 	if ctx.Mode == ctxpkg.Passive {
-		return findings, nil // 엑티브 스캔에서만
+		return findings, nil
 	}
 
 	if strings.Contains(ctx.Response.Header.Get("Content-Type"), "application/json") {

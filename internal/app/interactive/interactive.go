@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MOYARU/PRS-project/internal/app/scan"
-	"github.com/MOYARU/PRS-project/internal/app/ui"
-	msges "github.com/MOYARU/PRS-project/internal/messages"
+	"github.com/MOYARU/prs/internal/app/scan"
+	"github.com/MOYARU/prs/internal/app/ui"
+	msges "github.com/MOYARU/prs/internal/messages"
 	"github.com/spf13/cobra" // cobra import
 	"golang.org/x/term"
 )
@@ -67,9 +67,7 @@ func RunInteractiveMode(cmdObj *cobra.Command) {
 
 	// Print help text (flag descriptions, examples) but remove duplicate ASCII art
 	helpText := cmdObj.Long
-	if strings.Contains(helpText, ui.AsciiArt) {
-		helpText = strings.Replace(helpText, ui.AsciiArt, "", 1)
-	}
+	helpText = strings.Replace(helpText, ui.AsciiArt, "", 1)
 	fmt.Println(helpText)
 
 	fmt.Println()

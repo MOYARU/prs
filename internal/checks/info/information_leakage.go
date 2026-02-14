@@ -7,12 +7,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	"github.com/MOYARU/PRS-project/internal/checks/application"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context"
-	"github.com/MOYARU/PRS-project/internal/engine"
-	msges "github.com/MOYARU/PRS-project/internal/messages"
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	"github.com/MOYARU/prs/internal/checks/application"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/engine"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 type leakagePattern struct {

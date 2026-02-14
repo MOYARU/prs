@@ -12,11 +12,11 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context"
-	"github.com/MOYARU/PRS-project/internal/engine"
-	msges "github.com/MOYARU/PRS-project/internal/messages"
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/engine"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 var idorSensitiveFieldRegex = regexp.MustCompile(`(?i)"?(user_id|userid|account_id|account|customer_id|email|username|role|member_id|profile_id)"?\s*[:=]\s*"?([a-zA-Z0-9@._-]{1,80})"?`)
@@ -25,10 +25,7 @@ func CheckApplicationSecurity(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
 	findings = append(findings, checkInputReflection(ctx)...)
-	// JSON / HTML / JS 컨텍스트 구분
-
-	// IDOR 가능성
-	if ctx.Mode == ctxpkg.Active { // IDOR 검사도 액티브 전용
+	if ctx.Mode == ctxpkg.Active {
 		findings = append(findings, checkIDOR(ctx)...)
 	}
 	findings = append(findings, checkCSRFTokenPresence(ctx)...)
@@ -307,8 +304,6 @@ func checkGraphQLIntrospection(ctx *ctxpkg.Context) []report.Finding {
 		}
 	}
 	return findings
-
-	// TODO 의 흔적
 }
 
 func checkOpenRedirect(ctx *ctxpkg.Context) []report.Finding {

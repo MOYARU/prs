@@ -1,8 +1,8 @@
 package checks
 
 import (
-	context "github.com/MOYARU/PRS-project/internal/checks/context"
-	"github.com/MOYARU/PRS-project/internal/report"
+	context "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 type Category string

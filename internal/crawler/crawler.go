@@ -15,8 +15,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MOYARU/PRS-project/internal/app/ui"
-	"github.com/MOYARU/PRS-project/internal/engine"
+	"github.com/MOYARU/prs/internal/app/ui"
+	"github.com/MOYARU/prs/internal/engine"
 	"golang.org/x/net/html"
 )
 

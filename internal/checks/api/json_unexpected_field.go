@@ -7,17 +7,17 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context"
-	msges "github.com/MOYARU/PRS-project/internal/messages"
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 func CheckJSONUnexpectedField(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
 	if ctx.Mode == ctxpkg.Passive {
-		return findings, nil // 엑티브 스캔에서만
+		return findings, nil
 	}
 	// Only proceed if the original response is JSON
 	if !strings.Contains(ctx.Response.Header.Get("Content-Type"), "application/json") {
@@ -51,7 +51,7 @@ func CheckJSONUnexpectedField(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	}
 	defer resp.Body.Close()
 
-	// 200 OK 응답 체크 200응답은 취약점으로 간주
+	// If the server still accepts the request with unexpected fields, flag it.
 	if resp.StatusCode == http.StatusOK {
 		msg := msges.GetMessage("JSON_UNEXPECTED_FIELD_INSERTION")
 		findings = append(findings, report.Finding{

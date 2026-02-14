@@ -7,8 +7,8 @@ import (
 	"sort"
 	"time"
 
-	msges "github.com/MOYARU/PRS-project/internal/messages"
-	"github.com/MOYARU/PRS-project/internal/report"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 type TemplateFinding struct {
@@ -116,8 +116,6 @@ func SaveHTMLReport(target string, scannedURLs []string, findings []report.Findi
 	fmt.Printf("HTML Report saved to: %s\n", filename)
 	return t.Execute(f, data)
 }
-
-// 알수 없는 버그를 정복했습니다. 아무튼 이제 HTML 보고서가 제대로 생성됩니다.
 
 const htmlTemplate = `
 <!DOCTYPE html>

@@ -2,7 +2,6 @@ package scan
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,14 +13,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/MOYARU/PRS-project/internal/app/output"
-	"github.com/MOYARU/PRS-project/internal/app/ui"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context"
-	"github.com/MOYARU/PRS-project/internal/checks/scanner"
-	"github.com/MOYARU/PRS-project/internal/crawler"
-	"github.com/MOYARU/PRS-project/internal/engine"
-	msges "github.com/MOYARU/PRS-project/internal/messages"
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/app/output"
+	"github.com/MOYARU/prs/internal/app/ui"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/checks/scanner"
+	"github.com/MOYARU/prs/internal/crawler"
+	"github.com/MOYARU/prs/internal/engine"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -288,9 +287,6 @@ func isHTTPSReachable(target string) bool {
 
 	client := &http.Client{
 		Timeout: 3 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-		},
 	}
 	httpsURL := &url.URL{
 		Scheme: "https",

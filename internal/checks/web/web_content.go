@@ -11,10 +11,10 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context" // New import with alias
-	msges "github.com/MOYARU/PRS-project/internal/messages"        // New import for messages
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context" // New import with alias
+	msges "github.com/MOYARU/prs/internal/messages"        // New import for messages
+	"github.com/MOYARU/prs/internal/report"
 )
 
 var secretPatterns = []struct {
@@ -87,8 +87,6 @@ func CheckWebContentExposure(ctx *ctxpkg.Context) ([]report.Finding, error) {
 		}
 		wg.Wait()
 	}
-
-	// K. 클라이언트(브라우저) 보안
 	if ctx.Response != nil && ctx.Response.StatusCode == http.StatusOK {
 		contentType := ctx.Response.Header.Get("Content-Type")
 		bodyString := string(ctx.BodyBytes)

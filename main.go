@@ -1,12 +1,12 @@
 /*
-Copyright © 2026 モヤル <rbffo@icloud.com>
+Copyright (c) 2026 moyaru <rbffo@icloud.com>
 */
 
 package main
 
 import (
-	"github.com/MOYARU/PRS-project/cmd"
-	"github.com/MOYARU/PRS-project/internal/app/ui"
+	"github.com/MOYARU/prs/cmd"
+	"github.com/MOYARU/prs/internal/app/ui"
 )
 
 func main() {

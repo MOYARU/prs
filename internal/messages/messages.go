@@ -2,6 +2,7 @@ package messages
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -1177,10 +1178,24 @@ func GetMessage(id string) MessageDetail {
 				IsPotentiallyFalsePositive: msg.IsPotentiallyFalsePositive,
 			}
 		}
+
+		title := msg.TitleKO
+		message := msg.MessageKO
+		fix := msg.FixKO
+		if shouldFallbackKorean(title) {
+			title = msg.TitleEN
+		}
+		if shouldFallbackKorean(message) {
+			message = msg.MessageEN
+		}
+		if shouldFallbackKorean(fix) {
+			fix = msg.FixEN
+		}
+
 		return MessageDetail{
-			Title:                      msg.TitleKO,
-			Message:                    msg.MessageKO,
-			Fix:                        msg.FixKO,
+			Title:                      title,
+			Message:                    message,
+			Fix:                        fix,
 			IsPotentiallyFalsePositive: msg.IsPotentiallyFalsePositive,
 		}
 	}
@@ -1202,6 +1217,9 @@ func GetUIMessage(id string, args ...interface{}) string {
 		if !ok {
 			format = msgs[LangEN]
 		}
+		if lang == LangKO && shouldFallbackKorean(format) {
+			format = msgs[LangEN]
+		}
 		if format == "" {
 			return id
 		}
@@ -1211,4 +1229,11 @@ func GetUIMessage(id string, args ...interface{}) string {
 		return format
 	}
 	return id
+}
+
+func shouldFallbackKorean(s string) bool {
+	if s == "" {
+		return true
+	}
+	return strings.Contains(s, "??") || strings.ContainsRune(s, '\uFFFD')
 }

@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context"
-	"github.com/MOYARU/PRS-project/internal/checks/registry"
-	"github.com/MOYARU/PRS-project/internal/engine"
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/checks/registry"
+	"github.com/MOYARU/prs/internal/engine"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 type Scanner struct {
@@ -39,7 +39,7 @@ func New(target string, mode ctxpkg.ScanMode, delay time.Duration, client *http.
 	}, nil
 }
 
-// fix: Run 메서드에서 체크 실행 시 context 취소를 제대로 처리하도록 수정
+// Run executes all checks with context cancellation support.
 func (s *Scanner) Run(ctx context.Context) (map[string][]report.Finding, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.Target, nil)
 	if err != nil {
@@ -83,8 +83,7 @@ func (s *Scanner) Run(ctx context.Context) (map[string][]report.Finding, error) 
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	sem := make(chan struct{}, 5) // 최대 5개 동시 체크
-
+	sem := make(chan struct{}, 5) // Max 5 concurrent checks
 	var checksToRun []checks.Check
 	for _, check := range s.Checks {
 		if s.Mode == ctxpkg.Passive && check.Mode == ctxpkg.Active {
@@ -104,8 +103,8 @@ func (s *Scanner) Run(ctx context.Context) (map[string][]report.Finding, error) 
 		go func(c checks.Check) {
 			defer wg.Done()
 			select {
-			case sem <- struct{}{}: // 세마포어 획득
-				defer func() { <-sem }() // 세마포어 반납
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
 			case <-ctx.Done():
 				return
 			}

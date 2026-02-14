@@ -1,4 +1,4 @@
-module github.com/MOYARU/PRS-project
+module github.com/MOYARU/prs
 
 go 1.25.7
 
@@ -14,3 +14,4 @@ require (
 	github.com/spf13/pflag v1.0.9 // indirect
 	golang.org/x/term v0.39.0
 )
+
