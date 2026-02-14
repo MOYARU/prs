@@ -130,7 +130,7 @@ func DefaultChecks() []checks.Check {
 			Category:    checks.CategoryAppLogic,
 			Title:       "Application Security Check",
 			Description: "Checks reflection, IDOR indicators, CSRF token presence, and business-logic issues.",
-			Mode:        ctxpkg.Active,
+			Mode:        ctxpkg.Passive,
 			Run:         application.CheckApplicationSecurity,
 		},
 		{

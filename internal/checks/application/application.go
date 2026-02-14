@@ -24,7 +24,10 @@ var idorSensitiveFieldRegex = regexp.MustCompile(`(?i)"?(user_id|userid|account_
 func CheckApplicationSecurity(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
-	findings = append(findings, checkInputReflection(ctx)...)
+	// Input reflection probe sends an extra request, so keep it active-only.
+	if ctx.Mode == ctxpkg.Active {
+		findings = append(findings, checkInputReflection(ctx)...)
+	}
 	if ctx.Mode == ctxpkg.Active {
 		findings = append(findings, checkIDOR(ctx)...)
 	}

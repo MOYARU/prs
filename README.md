@@ -55,7 +55,7 @@ go install github.com/MOYARU/prs@latest
 
 If the `prs` command is not found, add your Go bin path to `PATH`.
 
-- Windows (PowerShell): `"$env:USERPROFILE\go\bin"`
+- Windows (PowerShell): `"$env:USER\go\bin"`
 - macOS/Linux: `"$HOME/go/bin"`
 
 Then restart your terminal and run:
