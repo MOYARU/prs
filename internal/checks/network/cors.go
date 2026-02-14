@@ -13,6 +13,10 @@ import (
 func CheckCORSConfiguration(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
+	if ctx == nil || ctx.Response == nil || ctx.FinalURL == nil {
+		return findings, nil
+	}
+
 	if ctx.Response.Header.Get("Access-Control-Allow-Origin") == "*" {
 		msg := msges.GetMessage("CORS_WILDCARD_ORIGIN")
 		findings = append(findings, report.Finding{

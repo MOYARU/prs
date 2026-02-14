@@ -58,6 +58,14 @@ var (
 		"\"><svg/onload=alert('%s')>",
 		"<body onload=alert('%s')>",
 		"<iframe src=\"javascript:alert('%s')\"></iframe>",
+		"\"><input autofocus onfocus=alert('%s') x=\"",
+		"\" autofocus onfocus=alert('%s') x=\"",
+		"'><input autofocus onfocus=alert('%s') x='",
+		"\"><details open ontoggle=alert('%s')>",
+		"<xss style=\"animation-name:x\" onanimationstart=\"alert('%s')\"></xss><style>@keyframes x{}</style>",
+		"<iframe srcdoc=\"<script>alert('%s')</script>\"></iframe>",
+		"\"><a href=javascript:alert('%s')>x</a>",
+		"<svg><a xlink:href=\"javascript:alert('%s')\">x</a></svg>",
 		"%%3Cscript%%3Ealert('%s')%%3C%%2Fscript%%3E",
 		"</script><script>alert('%s')</script>",
 		"\" onmouseover=\"alert('%s')",
@@ -149,7 +157,7 @@ ParamLoop:
 					continue
 				}
 
-				resp, err := ctx.HTTPClient.Do(req)
+				resp, err := doRequest(ctx.HTTPClient, req)
 				if err != nil {
 					continue
 				}
@@ -208,7 +216,7 @@ ParamLoop:
 			if err != nil {
 				continue
 			}
-			respTrue, err := ctx.HTTPClient.Do(reqTrue)
+			respTrue, err := doRequest(ctx.HTTPClient, reqTrue)
 			if err != nil {
 				continue
 			}
@@ -222,7 +230,7 @@ ParamLoop:
 			if err != nil {
 				continue
 			}
-			respFalse, err := ctx.HTTPClient.Do(reqFalse)
+			respFalse, err := doRequest(ctx.HTTPClient, reqFalse)
 			if err != nil {
 				continue
 			}
@@ -302,7 +310,7 @@ func CheckReflectedXSS(ctx *ctxpkg.Context) ([]report.Finding, error) {
 					continue
 				}
 
-				resp, err := ctx.HTTPClient.Do(req)
+				resp, err := doRequest(ctx.HTTPClient, req)
 				if err != nil {
 					continue
 				}
@@ -400,7 +408,7 @@ func checkTimeBasedInjection(ctx *ctxpkg.Context, delaySeconds int, payloads []s
 				}
 
 				startTime := time.Now()
-				resp, err := ctx.HTTPClient.Do(req)
+				resp, err := doRequest(ctx.HTTPClient, req)
 				duration := time.Since(startTime)
 
 				if err != nil {
@@ -413,7 +421,7 @@ func checkTimeBasedInjection(ctx *ctxpkg.Context, delaySeconds int, payloads []s
 					reqVerify, errVerify := http.NewRequest("GET", u.String(), nil)
 					if errVerify == nil {
 						startVerify := time.Now()
-						respVerify, errVerify := ctx.HTTPClient.Do(reqVerify)
+						respVerify, errVerify := doRequest(ctx.HTTPClient, reqVerify)
 						if errVerify == nil {
 							respVerify.Body.Close()
 							if time.Since(startVerify).Seconds() < float64(delaySeconds) {
@@ -478,7 +486,7 @@ func CheckSSTI(ctx *ctxpkg.Context) ([]report.Finding, error) {
 			if err != nil {
 				continue
 			}
-			resp, err := ctx.HTTPClient.Do(req)
+			resp, err := doRequest(ctx.HTTPClient, req)
 			if err != nil {
 				continue
 			}
@@ -688,7 +696,7 @@ func checkPostBooleanSQLInjection(ctx *ctxpkg.Context) []report.Finding {
 						return nil, nil, err
 					}
 					req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-					resp, err := ctx.HTTPClient.Do(req)
+					resp, err := doRequest(ctx.HTTPClient, req)
 					if err != nil {
 						return nil, nil, err
 					}
@@ -809,7 +817,7 @@ func fuzzForm(ctx *ctxpkg.Context, form crawler.Form, payloads []string,
 				}
 				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-				resp, err := ctx.HTTPClient.Do(req)
+				resp, err := doRequest(ctx.HTTPClient, req)
 				if err != nil {
 					continue
 				}
@@ -894,7 +902,7 @@ func testFormTimeBasedInjection(ctx *ctxpkg.Context, form crawler.Form, delaySec
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 			startTime := time.Now()
-			resp, err := ctx.HTTPClient.Do(req)
+			resp, err := doRequest(ctx.HTTPClient, req)
 			if err != nil {
 				continue
 			}
@@ -908,7 +916,7 @@ func testFormTimeBasedInjection(ctx *ctxpkg.Context, form crawler.Form, delaySec
 				if errVerify == nil {
 					reqVerify.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 					startVerify := time.Now()
-					respVerify, errVerify := ctx.HTTPClient.Do(reqVerify)
+					respVerify, errVerify := doRequest(ctx.HTTPClient, reqVerify)
 					if errVerify == nil {
 						respVerify.Body.Close()
 						if time.Since(startVerify).Seconds() < float64(delaySeconds) {
@@ -962,7 +970,18 @@ func handlePostRedirect(ctx *ctxpkg.Context, resp *http.Response) (*http.Respons
 		if err != nil {
 			return nil, err
 		}
-		return ctx.HTTPClient.Do(req2)
+		return doRequest(ctx.HTTPClient, req2)
+	}
+	return resp, nil
+}
+
+func doRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	resp, err := client.Do(req)
+	if err != nil {
+		if resp != nil && resp.Body != nil {
+			resp.Body.Close()
+		}
+		return nil, err
 	}
 	return resp, nil
 }

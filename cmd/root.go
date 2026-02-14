@@ -70,8 +70,7 @@ func init() {
 	rootCmd.Flags().IntVar(&delay, "delay", 0, "Delay between requests in milliseconds (e.g., 500)")
 
 	rootCmd.Long = ui.AsciiArt + `
-PRS (Passive Reconnaissance Scanner) is a lightweight, defensive-first web security scanner.
-It performs various checks to identify common vulnerabilities and misconfigurations in web applications and infrastructure.
+PRS is a lightweight, defensive-first web security scanner.
 
 Usage:
    prs [target_url] [flags]
@@ -80,6 +79,9 @@ Example:
   prs https://example.com
   prs https://example.com --depth 3
   prs https://example.com --active
+
+  port 127.0.0.1
+  port 127.0.0.1 1-10000
 
 Flags:
   --active             Enable active scan (disabled by default)

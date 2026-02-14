@@ -118,7 +118,7 @@ func CheckPacketAnomalies(ctx *ctxpkg.Context) ([]report.Finding, error) {
 			findings = append(findings, report.Finding{
 				ID:         "PII_LEAKAGE_EMAIL",
 				Category:   string(checks.CategoryInformationLeakage),
-				Severity:   report.SeverityMedium,
+				Severity:   report.SeverityInfo,
 				Confidence: report.ConfidenceMedium,
 				Title:      "Email Address Leaked",
 				Message:    "Potential email address found in response body.",

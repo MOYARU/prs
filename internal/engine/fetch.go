@@ -36,12 +36,14 @@ func Fetch(target string) (*FetchResult, error) {
 	if isRedirect(resp.StatusCode) {
 		location := resp.Header.Get("Location")
 		if location == "" {
-			return result, nil
+			resp.Body.Close()
+			return nil, fmt.Errorf("redirect response missing Location header")
 		}
 
 		redirectURL, err := resolveURL(initialURL, location)
 		if err != nil {
-			return result, nil
+			resp.Body.Close()
+			return nil, fmt.Errorf("failed to resolve redirect URL: %w", err)
 		}
 
 		resp.Body.Close()
@@ -86,7 +88,7 @@ func fetchOnce(target string, allowRedirect bool, tlsConfig *tls.Config) (*http.
 		return nil, err
 	}
 
-	req.Header.Set("User-Agent", "secscan/0.1.0 (defensive security scanner)")
+	req.Header.Set("User-Agent", "PRS/1.8.0 (defensive security scanner)")
 
 	return client.Do(req)
 }
@@ -152,12 +154,14 @@ func FetchWithTLSConfig(target string, tlsConfig *tls.Config) (*FetchResult, err
 	if isRedirect(resp.StatusCode) {
 		location := resp.Header.Get("Location")
 		if location == "" {
-			return result, nil
+			resp.Body.Close()
+			return nil, fmt.Errorf("redirect response missing Location header")
 		}
 
 		redirectURL, err := resolveURL(initialURL, location)
 		if err != nil {
-			return result, nil
+			resp.Body.Close()
+			return nil, fmt.Errorf("failed to resolve redirect URL: %w", err)
 		}
 		result.RedirectTarget = redirectURL
 		result.Redirected = true

@@ -76,40 +76,42 @@ func CheckTLSConfiguration(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	currentTime := time.Now()
 
 	for _, minVersion := range []uint16{tls.VersionTLS10, tls.VersionTLS11} {
-		if minVersion >= tls.VersionTLS12 { // Skip if probing for current or stronger versions
-			continue
-		}
-
-		tlsConfig := &tls.Config{
-			MinVersion:         minVersion,
-			InsecureSkipVerify: true, // Ignore certificate errors for TLS version probing
-		}
-
-		tempResult, err := engine.FetchWithTLSConfig(ctx.FinalURL.String(), tlsConfig)
-		if err != nil {
-			if opErr, ok := err.(*net.OpError); ok && opErr.Op == "read" {
-				continue
+		func(version uint16) {
+			if version >= tls.VersionTLS12 { // Skip if probing for current or stronger versions
+				return
 			}
-			if _, ok := err.(tls.RecordHeaderError); ok {
-				continue
-			}
-			continue
-		}
 
-		if tempResult.Response != nil && tempResult.Response.TLS != nil && tempResult.Response.TLS.Version == minVersion {
-			msg := msges.GetMessage("TLS_VERSION_SUPPORTED_V") // ID without %d
-			findings = append(findings, report.Finding{
-				ID:       fmt.Sprintf("TLS_VERSION_SUPPORTED_V%d", minVersion),
-				Category: string(checks.CategoryNetwork),
-				Severity: report.SeverityHigh,
-				Title:    fmt.Sprintf(msg.Title, tlsVersionToString(minVersion)),
-				Message:  fmt.Sprintf(msg.Message, tlsVersionToString(minVersion)),
-				Fix:      msg.Fix,
-			})
-		}
-		if tempResult.Response != nil {
-			tempResult.Response.Body.Close()
-		}
+			tlsConfig := &tls.Config{
+				MinVersion:         version,
+				InsecureSkipVerify: true, // Ignore certificate errors for TLS version probing
+			}
+
+			tempResult, err := engine.FetchWithTLSConfig(ctx.FinalURL.String(), tlsConfig)
+			if err != nil {
+				if opErr, ok := err.(*net.OpError); ok && opErr.Op == "read" {
+					return
+				}
+				if _, ok := err.(tls.RecordHeaderError); ok {
+					return
+				}
+				return
+			}
+			if tempResult.Response != nil {
+				defer tempResult.Response.Body.Close()
+			}
+
+			if tempResult.Response != nil && tempResult.Response.TLS != nil && tempResult.Response.TLS.Version == version {
+				msg := msges.GetMessage("TLS_VERSION_SUPPORTED_V") // ID without %d
+				findings = append(findings, report.Finding{
+					ID:       fmt.Sprintf("TLS_VERSION_SUPPORTED_V%d", version),
+					Category: string(checks.CategoryNetwork),
+					Severity: report.SeverityHigh,
+					Title:    fmt.Sprintf(msg.Title, tlsVersionToString(version)),
+					Message:  fmt.Sprintf(msg.Message, tlsVersionToString(version)),
+					Fix:      msg.Fix,
+				})
+			}
+		}(minVersion)
 	}
 
 	// If the connection was established using TLS 1.0 or 1.1 with the main fetch

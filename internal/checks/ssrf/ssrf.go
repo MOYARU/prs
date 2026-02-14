@@ -54,10 +54,19 @@ func CheckSSRF(ctx *ctxpkg.Context) ([]report.Finding, error) {
 
 	u, _ := url.Parse(ctx.FinalURL.String())
 	queryParams := u.Query()
+	baselineBody := string(ctx.BodyBytes)
 
 	// 1. GET Parameters
 	if len(queryParams) > 0 {
-		for param := range queryParams {
+		for param, values := range queryParams {
+			originalValue := ""
+			if len(values) > 0 {
+				originalValue = values[0]
+			}
+			if !isSSRFParamCandidate(param, originalValue) {
+				continue
+			}
+
 			// Check External SSRF
 			newParams := url.Values{}
 			for k, v := range queryParams {
@@ -65,8 +74,9 @@ func CheckSSRF(ctx *ctxpkg.Context) ([]report.Finding, error) {
 			}
 			newParams.Set(param, callbackURL)
 			u.RawQuery = newParams.Encode()
+			requestURL := u.String()
 
-			req, err := http.NewRequest("GET", u.String(), nil)
+			req, err := http.NewRequest("GET", requestURL, nil)
 			if err != nil {
 				continue
 			}
@@ -80,16 +90,16 @@ func CheckSSRF(ctx *ctxpkg.Context) ([]report.Finding, error) {
 			bodyString := string(bodyBytes)
 			resp.Body.Close()
 
-			if isExampleDomainResponse(bodyString) && !isExampleDomainResponse(string(ctx.BodyBytes)) {
+			if ok, evidence := detectExternalFetchSignal(bodyString, baselineBody, callbackURL); ok {
 				msg := msges.GetMessage("SSRF_CALLBACK_DETECTED")
 				findings = append(findings, report.Finding{
 					ID:                         "SSRF_CALLBACK_DETECTED",
 					Category:                   string(checks.CategorySSRF),
-					Severity:                   report.SeverityHigh,
-					Confidence:                 report.ConfidenceHigh,
+					Severity:                   report.SeverityInfo,
+					Confidence:                 report.ConfidenceLow,
 					Title:                      msg.Title,
 					Message:                    fmt.Sprintf(msg.Message, param),
-					Evidence:                   fmt.Sprintf("Response matched example.com markers when injecting '%s'", callbackURL),
+					Evidence:                   fmt.Sprintf("%s; request=%s; status=%d", evidence, requestURL, resp.StatusCode),
 					Fix:                        msg.Fix,
 					IsPotentiallyFalsePositive: msg.IsPotentiallyFalsePositive,
 				})
@@ -104,8 +114,9 @@ func CheckSSRF(ctx *ctxpkg.Context) ([]report.Finding, error) {
 				}
 				newParamsLocal.Set(param, localURL)
 				u.RawQuery = newParamsLocal.Encode()
+				localRequestURL := u.String()
 
-				reqLocal, err := http.NewRequest("GET", u.String(), nil)
+				reqLocal, err := http.NewRequest("GET", localRequestURL, nil)
 				if err != nil {
 					continue
 				}
@@ -118,16 +129,17 @@ func CheckSSRF(ctx *ctxpkg.Context) ([]report.Finding, error) {
 				bodyStringLocal := string(bodyBytesLocal)
 				respLocal.Body.Close()
 
-				if strings.Contains(bodyStringLocal, target.Signature) {
+				if strings.Contains(strings.ToLower(bodyStringLocal), strings.ToLower(target.Signature)) &&
+					!strings.Contains(strings.ToLower(baselineBody), strings.ToLower(target.Signature)) {
 					msg := msges.GetMessage("SSRF_LOCAL_ACCESS_DETECTED")
 					findings = append(findings, report.Finding{
 						ID:                         "SSRF_LOCAL_ACCESS_DETECTED",
 						Category:                   string(checks.CategorySSRF),
-						Severity:                   report.SeverityHigh,
-						Confidence:                 report.ConfidenceHigh,
+						Severity:                   report.SeverityMedium,
+						Confidence:                 report.ConfidenceMedium,
 						Title:                      msg.Title,
 						Message:                    fmt.Sprintf(msg.Message, param, target.Port, target.Service),
-						Evidence:                   fmt.Sprintf("Response contained signature '%s' for port %d", target.Signature, target.Port),
+						Evidence:                   fmt.Sprintf("Response contained signature '%s' for port %d; request=%s; status=%d", target.Signature, target.Port, localRequestURL, respLocal.StatusCode),
 						Fix:                        msg.Fix,
 						IsPotentiallyFalsePositive: msg.IsPotentiallyFalsePositive,
 					})
@@ -180,18 +192,19 @@ func CheckSSRF(ctx *ctxpkg.Context) ([]report.Finding, error) {
 						continue
 					}
 					bodyBytes, _ := engine.DecodeResponseBody(resp)
+					bodyString := string(bodyBytes)
 					resp.Body.Close()
 
-					if isExampleDomainResponse(string(bodyBytes)) && !isExampleDomainResponse(string(ctx.BodyBytes)) {
+					if ok, evidence := detectExternalFetchSignal(bodyString, baselineBody, callbackURL); ok {
 						msg := msges.GetMessage("SSRF_CALLBACK_DETECTED")
 						findings = append(findings, report.Finding{
 							ID:                         "SSRF_CALLBACK_DETECTED",
 							Category:                   string(checks.CategorySSRF),
-							Severity:                   report.SeverityHigh,
-							Confidence:                 report.ConfidenceMedium,
+							Severity:                   report.SeverityInfo,
+							Confidence:                 report.ConfidenceLow,
 							Title:                      msg.Title,
 							Message:                    fmt.Sprintf(msg.Message, in.Name+" (POST)"),
-							Evidence:                   fmt.Sprintf("Response resembled example.com content after injecting '%s' into '%s'", callbackURL, in.Name),
+							Evidence:                   fmt.Sprintf("%s; formAction=%s; field=%s; status=%d", evidence, targetURL, in.Name, resp.StatusCode),
 							Fix:                        msg.Fix,
 							IsPotentiallyFalsePositive: msg.IsPotentiallyFalsePositive,
 						})
@@ -203,4 +216,89 @@ func CheckSSRF(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	}
 
 	return findings, nil
+}
+
+func isSSRFParamCandidate(name, value string) bool {
+	n := strings.ToLower(strings.TrimSpace(name))
+	v := strings.ToLower(strings.TrimSpace(value))
+	if n == "" {
+		return false
+	}
+	keywords := []string{"url", "uri", "link", "callback", "redirect", "next", "dest", "endpoint", "path", "return"}
+	for _, kw := range keywords {
+		if strings.Contains(n, kw) {
+			return true
+		}
+	}
+	return strings.HasPrefix(v, "http://") || strings.HasPrefix(v, "https://") || strings.HasPrefix(v, "//")
+}
+
+func detectExternalFetchSignal(body, baseline, injectedURL string) (bool, string) {
+	bodyLower := strings.ToLower(body)
+	baselineLower := strings.ToLower(baseline)
+	injectedLower := strings.ToLower(injectedURL)
+
+	markers := []string{
+		"<h1>example domain</h1>",
+		"iana.org/domains/example",
+		"this domain is for use in documentation",
+	}
+
+	markerHit := ""
+	for _, marker := range markers {
+		if strings.Contains(bodyLower, marker) && !strings.Contains(baselineLower, marker) {
+			markerHit = marker
+			break
+		}
+	}
+	if markerHit == "" {
+		// Fallback: response includes injected host/url while baseline does not.
+		if !(strings.Contains(bodyLower, "example.com") && !strings.Contains(baselineLower, "example.com")) &&
+			!(strings.Contains(bodyLower, injectedLower) && !strings.Contains(baselineLower, injectedLower)) {
+			return false, ""
+		}
+	}
+
+	// Require meaningful response change to avoid reflection-only false positives.
+	sim := similarityScore(bodyLower, baselineLower)
+	if sim > 0.95 {
+		return false, ""
+	}
+
+	if markerHit != "" {
+		return true, fmt.Sprintf("Response contained external content marker '%s' after injecting '%s' (similarity %.2f)", markerHit, injectedURL, sim)
+	}
+	return true, fmt.Sprintf("Response changed and included external URL/host after injecting '%s' (similarity %.2f)", injectedURL, sim)
+}
+
+func similarityScore(a, b string) float64 {
+	if a == b {
+		return 1.0
+	}
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+
+	tokensA := strings.Fields(a)
+	tokensB := strings.Fields(b)
+	setA := make(map[string]struct{}, len(tokensA))
+	setB := make(map[string]struct{}, len(tokensB))
+	for _, t := range tokensA {
+		setA[t] = struct{}{}
+	}
+	for _, t := range tokensB {
+		setB[t] = struct{}{}
+	}
+
+	inter := 0
+	for t := range setA {
+		if _, ok := setB[t]; ok {
+			inter++
+		}
+	}
+	union := len(setA) + len(setB) - inter
+	if union <= 0 {
+		return 0
+	}
+	return float64(inter) / float64(union)
 }

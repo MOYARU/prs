@@ -48,6 +48,10 @@ func CheckInformationLeakage(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	for _, p := range leakagePatterns {
 		if p.Match(bodyString) {
 			msg := msges.GetMessage(p.MsgID) // Retrieve message
+			evidence := ""
+			if p.MsgID == "INFORMATION_LEAKAGE_STACK_TRACE" {
+				evidence = extractStackTraceEvidence(bodyString)
+			}
 			findings = append(findings, report.Finding{
 				ID:         p.MsgID,
 				Category:   string(checks.CategoryInformationLeakage),
@@ -55,6 +59,7 @@ func CheckInformationLeakage(ctx *ctxpkg.Context) ([]report.Finding, error) {
 				Confidence: report.ConfidenceHigh,
 				Title:      msg.Title,
 				Message:    msg.Message,
+				Evidence:   evidence,
 				Fix:        msg.Fix,
 			})
 		}
@@ -169,4 +174,39 @@ func CheckInformationLeakage(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	}
 
 	return findings, nil
+}
+
+func extractStackTraceEvidence(body string) string {
+	lines := strings.Split(body, "\n")
+	candidates := []string{
+		"stack trace",
+		"traceback",
+		"panic:",
+		"exception",
+		" at ",
+		".java:",
+		".go:",
+		".cs:",
+	}
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		lower := strings.ToLower(trimmed)
+		for _, c := range candidates {
+			if strings.Contains(lower, c) {
+				if len(trimmed) > 240 {
+					return trimmed[:240] + "..."
+				}
+				return trimmed
+			}
+		}
+	}
+
+	if len(body) > 240 {
+		return strings.TrimSpace(body[:240]) + "..."
+	}
+	return strings.TrimSpace(body)
 }

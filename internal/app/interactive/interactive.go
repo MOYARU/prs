@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,6 +22,44 @@ import (
 )
 
 const maxRepeaterBodyBytes = 1 << 20 // 1 MiB
+
+var commonPortServices = map[int]string{
+	20:    "ftp-data",
+	21:    "ftp",
+	22:    "ssh",
+	23:    "telnet",
+	25:    "smtp",
+	53:    "dns",
+	80:    "http",
+	110:   "pop3",
+	111:   "rpcbind",
+	135:   "msrpc",
+	139:   "netbios-ssn",
+	143:   "imap",
+	161:   "snmp",
+	389:   "ldap",
+	443:   "https",
+	445:   "microsoft-ds",
+	465:   "smtps",
+	587:   "submission",
+	636:   "ldaps",
+	993:   "imaps",
+	995:   "pop3s",
+	1433:  "ms-sql-s",
+	1521:  "oracle",
+	2049:  "nfs",
+	2375:  "docker",
+	3306:  "mysql",
+	3389:  "rdp",
+	5432:  "postgresql",
+	5672:  "amqp",
+	6379:  "redis",
+	8080:  "http-proxy",
+	8443:  "https-alt",
+	9200:  "elasticsearch",
+	11211: "memcached",
+	27017: "mongodb",
+}
 
 // RunInteractiveMode starts the interactive mode of PRS.
 func RunInteractiveMode(cmdObj *cobra.Command) {
@@ -182,6 +222,7 @@ func processCommand(input string) bool {
 		fmt.Printf("%s%s%s\n", ui.ColorWhite, msges.GetUIMessage("InteractiveHelp"), ui.ColorReset)
 		fmt.Printf("%s  scan <target_url> [--active] [--respect-robots] [--depth N] [--json] [--delay MS]%s\n", ui.ColorGray, ui.ColorReset)
 		fmt.Printf("%s  prs <target_url> ...%s\n", ui.ColorGray, ui.ColorReset)
+		fmt.Printf("%s  port <host> [start-end]%s\n", ui.ColorGray, ui.ColorReset)
 		fmt.Printf("%s  repeater <METHOD> <url> [body]%s\n", ui.ColorGray, ui.ColorReset)
 		fmt.Printf("%s  fuzz <url_with_FUZZ> <wordlist_path>%s\n", ui.ColorGray, ui.ColorReset)
 		fmt.Printf("%s  help%s\n", ui.ColorGray, ui.ColorReset)
@@ -226,6 +267,8 @@ func processCommand(input string) bool {
 		}
 	case "repeater":
 		handleRepeater(cmdArgs)
+	case "port":
+		handlePortScan(cmdArgs)
 	case "fuzz":
 		handleFuzzer(cmdArgs)
 	default:
@@ -291,7 +334,7 @@ func handleRepeater(args []string) {
 		return
 	}
 
-	req.Header.Set("User-Agent", "PRS-Repeater/1.5.0")
+	req.Header.Set("User-Agent", "PRS-Repeater/1.8.0")
 	if method == "POST" || method == "PUT" {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
@@ -366,7 +409,7 @@ func handleFuzzer(args []string) {
 
 			url := strings.ReplaceAll(targetURL, "FUZZ", w)
 			req, _ := http.NewRequest("GET", url, nil)
-			req.Header.Set("User-Agent", "PRS-Fuzzer/1.5.0")
+			req.Header.Set("User-Agent", "PRS-Fuzzer/1.8.0")
 
 			resp, err := client.Do(req)
 			if err != nil {
@@ -393,4 +436,78 @@ func handleFuzzer(args []string) {
 	}
 	wg.Wait()
 	fmt.Printf("%sFuzzing completed.%s\n", ui.ColorGreen, ui.ColorReset)
+}
+
+func handlePortScan(args []string) {
+	if len(args) < 1 {
+		fmt.Printf("%sUsage: port <HOST> [START-END]%s\n", ui.ColorRed, ui.ColorReset)
+		return
+	}
+
+	host := strings.TrimSpace(args[0])
+	if host == "" {
+		fmt.Printf("%sError: host is empty.%s\n", ui.ColorRed, ui.ColorReset)
+		return
+	}
+
+	startPort, endPort := 1, 1024
+	if len(args) >= 2 {
+		parts := strings.SplitN(args[1], "-", 2)
+		if len(parts) != 2 {
+			fmt.Printf("%sError: port range must be START-END (e.g., 1-1024).%s\n", ui.ColorRed, ui.ColorReset)
+			return
+		}
+		s, err1 := strconv.Atoi(parts[0])
+		e, err2 := strconv.Atoi(parts[1])
+		if err1 != nil || err2 != nil || s < 1 || e > 65535 || s > e {
+			fmt.Printf("%sError: invalid port range.%s\n", ui.ColorRed, ui.ColorReset)
+			return
+		}
+		startPort, endPort = s, e
+	}
+
+	fmt.Printf("%sScanning ports on %s (%d-%d)...%s\n", ui.ColorGreen, host, startPort, endPort, ui.ColorReset)
+
+	var openPorts []int
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 200)
+	timeout := 500 * time.Millisecond
+
+	for p := startPort; p <= endPort; p++ {
+		port := p
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			conn, err := net.DialTimeout("tcp", net.JoinHostPort(host, strconv.Itoa(port)), timeout)
+			if err != nil {
+				return
+			}
+			conn.Close()
+
+			mu.Lock()
+			openPorts = append(openPorts, port)
+			mu.Unlock()
+		}()
+	}
+
+	wg.Wait()
+	sort.Ints(openPorts)
+
+	if len(openPorts) == 0 {
+		fmt.Printf("%sNo open ports found.%s\n", ui.ColorYellow, ui.ColorReset)
+		return
+	}
+
+	fmt.Printf("%sOpen ports (%d):%s\n", ui.ColorGreen, len(openPorts), ui.ColorReset)
+	for _, p := range openPorts {
+		if svc, ok := commonPortServices[p]; ok {
+			fmt.Printf(" - %d/tcp (%s)\n", p, svc)
+		} else {
+			fmt.Printf(" - %d/tcp\n", p)
+		}
+	}
 }

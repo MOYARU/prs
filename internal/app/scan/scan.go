@@ -22,6 +22,7 @@ import (
 	"github.com/MOYARU/PRS-project/internal/engine"
 	msges "github.com/MOYARU/PRS-project/internal/messages"
 	"github.com/MOYARU/PRS-project/internal/report"
+	"golang.org/x/net/publicsuffix"
 )
 
 func RunScan(target string, activeScan bool, crawl bool, respectRobots bool, depth int, jsonOutput bool, htmlOutput bool, delay int) error {
@@ -153,8 +154,12 @@ func RunScan(target string, activeScan bool, crawl bool, respectRobots bool, dep
 		wg.Add(1)
 		go func(urlStr string) {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
 
 			// Update progress bar on completion (defer to ensure it runs even on error)
 			defer func() {
@@ -191,8 +196,16 @@ func RunScan(target string, activeScan bool, crawl bool, respectRobots bool, dep
 				}
 
 				for _, f := range findings {
+					f = report.ApplySeverityOverride(f)
+
 					// Global aggregation
-					k := findingKey{ID: f.ID, Message: f.Message}
+					keyMessage := f.Message
+					if f.ID == "MISSING_SECURITY_HEADERS" {
+						if domain := rootDomainFromURL(urlStr); domain != "" {
+							keyMessage = "root-domain:" + domain
+						}
+					}
+					k := findingKey{ID: f.ID, Message: keyMessage}
 					if _, exists := aggregatedFindings[k]; !exists {
 						aggregatedFindings[k] = &findingInfo{
 							Finding: f,
@@ -228,7 +241,9 @@ func RunScan(target string, activeScan bool, crawl bool, respectRobots bool, dep
 	}
 
 	endTime := time.Now()
+	elapsed := endTime.Sub(startTime).Seconds()
 	fmt.Printf("\n%s%s%s\n", ui.ColorGreen, msges.GetUIMessage("AllScansCompleted"), ui.ColorReset)
+	fmt.Printf("%sScan completed in %.2fs%s\n", ui.ColorGray, elapsed, ui.ColorReset)
 
 	// Print any scan errors that occurred
 	if len(scanErrors) > 0 {
@@ -357,4 +372,20 @@ func validateTargetHost(target string) error {
 	}
 	_ = conn.Close()
 	return nil
+}
+
+func rootDomainFromURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" {
+		return ""
+	}
+	root, err := publicsuffix.EffectiveTLDPlusOne(host)
+	if err != nil {
+		return host
+	}
+	return root
 }

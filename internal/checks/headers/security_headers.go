@@ -110,7 +110,11 @@ func parseHSTSMaxAge(hsts string) int {
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if strings.HasPrefix(strings.ToLower(part), "max-age=") {
-			value := strings.TrimSpace(strings.SplitN(part, "=", 2)[1])
+			kv := strings.SplitN(part, "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			value := strings.TrimSpace(kv[1])
 			parsed, err := strconv.Atoi(value)
 			if err == nil {
 				return parsed
