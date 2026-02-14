@@ -218,7 +218,7 @@ func processCommand(input string) bool {
 
 	if input == "help" {
 		fmt.Printf("%s%s%s\n", ui.ColorWhite, msges.GetUIMessage("InteractiveHelp"), ui.ColorReset)
-		fmt.Printf("%s  scan <target_url> [--active] [--respect-robots] [--depth N] [--json] [--delay MS]%s\n", ui.ColorGray, ui.ColorReset)
+		fmt.Printf("%s  scan <target_url> [--active] [--crawl] [--respect-robots] [--depth N] [--json] [--delay MS]%s\n", ui.ColorGray, ui.ColorReset)
 		fmt.Printf("%s  prs <target_url> ...%s\n", ui.ColorGray, ui.ColorReset)
 		fmt.Printf("%s  port <host> [start-end]%s\n", ui.ColorGray, ui.ColorReset)
 		fmt.Printf("%s  repeater <METHOD> <url> [body]%s\n", ui.ColorGray, ui.ColorReset)
@@ -245,13 +245,11 @@ func processCommand(input string) bool {
 		}
 
 		target := cmdArgs[0]
-		active, jsonOut, respectRobots, depth, delay, err := parseScanFlags(cmdArgs[1:])
+		active, jsonOut, crawl, respectRobots, depth, delay, err := parseScanFlags(cmdArgs[1:])
 		if err != nil {
 			fmt.Printf("%s%s%s\n", ui.ColorRed, err, ui.ColorReset)
 			return false
 		}
-
-		crawl := true // Always enabled
 
 		htmlOut, err := ui.Confirm(msges.GetUIMessage("AskSaveHTML"))
 		if err != nil {
@@ -276,9 +274,10 @@ func processCommand(input string) bool {
 }
 
 // flag parsing helper
-func parseScanFlags(args []string) (bool, bool, bool, int, int, error) {
+func parseScanFlags(args []string) (bool, bool, bool, bool, int, int, error) {
 	active := false
 	jsonOut := false
+	crawl := false
 	respectRobots := false
 	depth := 2
 	delay := 0
@@ -290,6 +289,10 @@ func parseScanFlags(args []string) (bool, bool, bool, int, int, error) {
 			active = true
 		case "--json":
 			jsonOut = true
+		case "--crawl":
+			crawl = true
+		case "--no-crawl":
+			crawl = false
 		case "--respect-robots":
 			respectRobots = true
 		case "--depth":
@@ -307,10 +310,10 @@ func parseScanFlags(args []string) (bool, bool, bool, int, int, error) {
 				}
 			}
 		default:
-			return false, false, false, 0, 0, errors.New(msges.GetUIMessage("InteractiveErrorUnknownFlag", arg))
+			return false, false, false, false, 0, 0, errors.New(msges.GetUIMessage("InteractiveErrorUnknownFlag", arg))
 		}
 	}
-	return active, jsonOut, respectRobots, depth, delay, nil
+	return active, jsonOut, crawl, respectRobots, depth, delay, nil
 }
 
 func handleRepeater(args []string) {

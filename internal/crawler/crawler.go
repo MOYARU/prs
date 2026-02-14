@@ -591,7 +591,7 @@ func (c *Crawler) parseRobotsTXT(ctx context.Context, targetURL string) {
 						continue
 					}
 					absoluteURL := c.BaseURL.ResolveReference(&url.URL{Path: pathValue}).String()
-					c.scheduleCrawl(ctx, absoluteURL, 0)
+					c.scheduleCrawl(ctx, absoluteURL, c.estimateDepthFromBase(absoluteURL))
 				}
 			}
 		}
@@ -666,7 +666,33 @@ func (c *Crawler) parseSitemapXML(ctx context.Context, targetURL string) {
 				c.parseSitemapXML(ctx, loc)
 				continue
 			}
-			c.scheduleCrawl(ctx, loc, 0)
+			c.scheduleCrawl(ctx, loc, c.estimateDepthFromBase(loc))
 		}
 	}
+}
+
+func (c *Crawler) estimateDepthFromBase(raw string) int {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return c.MaxDepth + 1
+	}
+
+	basePathDepth := pathDepth(c.BaseURL.Path)
+	targetPathDepth := pathDepth(u.Path)
+	if targetPathDepth <= basePathDepth {
+		return 0
+	}
+	return targetPathDepth - basePathDepth
+}
+
+func pathDepth(p string) int {
+	p = strings.TrimSpace(p)
+	if p == "" || p == "/" {
+		return 0
+	}
+	p = strings.Trim(p, "/")
+	if p == "" {
+		return 0
+	}
+	return len(strings.Split(p, "/"))
 }

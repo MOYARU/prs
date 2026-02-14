@@ -37,9 +37,6 @@ var rootCmd = &cobra.Command{
 		} else {
 			target := args[0]
 
-			// Crawler is always enabled
-			crawl = true
-
 			// Ask for HTML report interactively
 			var err error
 			htmlOutput, err = ui.Confirm(msges.GetUIMessage("AskSaveHTML"))
@@ -65,6 +62,7 @@ func Execute() {
 func init() {
 	rootCmd.Flags().BoolVar(&activeScan, "active", false, "Enable active scan (disabled by default)")
 	rootCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output result as JSON")
+	rootCmd.Flags().BoolVar(&crawl, "crawl", false, "Enable crawler (disabled by default; scans only target URL unless set)")
 	rootCmd.Flags().BoolVar(&respectRobots, "respect-robots", false, "Respect robots.txt disallow rules during crawling")
 	rootCmd.Flags().IntVar(&depth, "depth", 2, "Crawling depth (default: 2)")
 	rootCmd.Flags().IntVar(&delay, "delay", 0, "Delay between requests in milliseconds (e.g., 500)")
@@ -85,6 +83,7 @@ Example:
 
 Flags:
   --active             Enable active scan (disabled by default)
+  --crawl              Enable crawler (disabled by default)
   --respect-robots     Respect robots.txt disallow rules during crawling
   --depth              Crawling depth (default: 2)
   --json               Output result as JSON

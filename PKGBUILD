@@ -11,13 +11,13 @@ source=("git+${url}.git#tag=v${pkgver}")
 sha256sums=('SKIP')
 
 build() {
-  cd "$srcdir/$pkgname"
-  go build -trimpath -ldflags "-s -w" -o prs ./main.go
+  cd "$srcdir/prs"
+  go build -trimpath -buildmode=pie -ldflags "-s -w" -o prs-scan ./main.go
 }
 
 package() {
-  cd "$srcdir/$pkgname"
-  install -Dm755 prs "$pkgdir/usr/bin/prs"
+  cd "$srcdir/prs"
+  install -Dm755 prs-scan "$pkgdir/usr/bin/$pkgname"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }
