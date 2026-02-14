@@ -1,4 +1,4 @@
-pkgname=prs
+pkgname=prs-scan
 pkgver=1.8.0
 pkgrel=1
 pkgdesc="Defensive-first web security scanner"
