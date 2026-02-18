@@ -64,6 +64,14 @@ Then restart your terminal and run:
 prs
 ```
 
+### Build in Arch Linux
+```
+yay -S prs-scan
+
+prs-scan
+```
+
+
 ### Build from source (optional)
 ```bash
 git clone https://github.com/MOYARU/prs.git
