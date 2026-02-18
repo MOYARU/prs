@@ -20,7 +20,6 @@ var (
 	activeScan    bool
 	jsonOutput    bool
 	htmlOutput    bool
-	crawl         bool
 	respectRobots bool
 	depth         int
 	delay         int
@@ -35,7 +34,7 @@ var rootCmd = &cobra.Command{
 			interactive.RunInteractiveMode(cmd)
 		} else {
 			target := args[0]
-			err := scan.RunScan(target, activeScan, crawl, respectRobots, depth, jsonOutput, htmlOutput, delay, false)
+			err := scan.RunScan(target, activeScan, true, respectRobots, depth, jsonOutput, htmlOutput, delay, false)
 			if err != nil {
 				fmt.Printf("%sScan failed: %v%s\n", ui.ColorRed, err, ui.ColorReset)
 				os.Exit(1)
@@ -54,7 +53,6 @@ func init() {
 	rootCmd.Flags().BoolVar(&activeScan, "active", false, "Enable active scan (disabled by default)")
 	rootCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output result as JSON")
 	rootCmd.Flags().BoolVar(&htmlOutput, "html", false, "Output result as HTML")
-	rootCmd.Flags().BoolVar(&crawl, "crawl", true, "Enable crawler (enabled by default)")
 	rootCmd.Flags().BoolVar(&respectRobots, "respect-robots", false, "Respect robots.txt disallow rules during crawling")
 	rootCmd.Flags().IntVar(&depth, "depth", 2, "Crawling depth (default: 2)")
 	rootCmd.Flags().IntVar(&delay, "delay", 0, "Delay between requests in milliseconds (e.g., 500)")
@@ -75,7 +73,6 @@ Example:
 
 Flags:
   --active             Enable active scan (disabled by default)
-  --crawl              Enable crawler (enabled by default)
   --respect-robots     Respect robots.txt disallow rules during crawling
   --depth              Crawling depth (default: 2)
   --json               Output result as JSON
