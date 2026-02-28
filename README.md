@@ -1,51 +1,179 @@
-```text
-      :::::::::       :::::::::       :::::::: 
-     :+:    :+:      :+:    :+:     :+:    :+: 
-    +:+    +:+      +:+    +:+     +:+         
-   +#++:++#+       +#++:++#:      +#++:++#++   
-  +#+             +#+    +#+            +#+    
- #+#             #+#    #+#     #+#    #+#     
-###             ###    ###      ########  
-```
-# PRS
-### *Passive Reconnaissance Scanner*
-### PRS focuses on risk visibility, not exploitation.
+﻿# PRS v1.5.0
+  <p>
+    <a href="https://github.com/MOYARU/prs/releases">
+      <img src="https://img.shields.io/github/v/release/MOYARU/prs?color=5865F2" alt="Release">
+    </a>
+    <a href="https://github.com/MOYARU/prs/stargazers">
+      <img src="https://img.shields.io/github/stars/MOYARU/prs?style=social" alt="Stars">
+    </a>
+    <img src="https://img.shields.io/github/go-mod/go-version/MOYARU/prs?color=00ADD8" alt="Go">
+    <img src="https://img.shields.io/github/license/MOYARU/prs?color=green" alt="MIT">
+  </p>
+</p>
 
 ## Overview
-#### PRS is a terminal-based web security scanner focused on identifying security misconfigurations, insecure defaults, and design-level risks.
-#### It prioritizes clarity and safety over aggressive exploitation, providing actionable insights without attempting to compromise the target system.
 
+PRS is a CLI-based scanner focused on safe assessment of web targets.
+It combines crawling, passive checks, optional active checks, and report export (JSON/HTML).
 
-## Design Philosophy
-#### PRS is designed with the following principles:
-1. Prefer passive analysis over active exploitation
-2. Detect misconfigurations and insecure design patterns
-3. Avoid intrusive or destructive behavior
-4. Clearly communicate uncertainty and possible false positives
-#### PRS does not attempt to exploit vulnerabilities.
-#### Instead, it highlights conditions that may lead to security issues.
+Core goals:
+- Useful findings with clear evidence
+- Conservative defaults for safer operation
+- Fast workflow for security testing in real environments
 
-## Output Example
+## Features
+
+- Crawler with scope discovery and form extraction
+- Passive and active scan modes
+- Security checks across:
+  - TLS and transport security
+  - Security headers
+  - Auth/session and cookie hardening
+  - Input handling and injection patterns
+  - API-related checks
+  - Information leakage and web content exposure
+- Interactive mode with built-in tools:
+  - `scan`
+  - `port` (simple port scanner with service names)
+  - `repeater`
+  - `fuzz`
+- Report outputs:
+  - Console summary
+  - JSON report
+  - HTML report
+
+## Installation
+
+### Requirements
+- Go 1.21+ (or version compatible with `go.mod`)
+- Windows/macOS/Linux terminal
+
+### Install with `go install`
+```bash
+go install github.com/MOYARU/prs@latest
 ```
-[HIGH] IDOR Possible
-Numeric identifier changed: /resource/123 → /resource/124
-Response behavior differed
-Manual verification recommended
+
+If the `prs` command is not found, add your Go bin path to `PATH`.
+
+- Windows (PowerShell): `"$env:USER\go\bin"`
+- macOS/Linux: `"$HOME/go/bin"`
+
+Then restart your terminal and run:
+
+```bash
+prs
 ```
 
-## 사용방법
-#### 해당 툴은 CLI툴입니다.
-#### PRS를 설치하고 PRS.EXE를 프롬포트에서 실행합니다.
-#### .\PRS
-직접 빌드도 가능합니다.
-#### prs (example.com) 으로 스캔합니다.
-#### 옵션 소개
-1. --active : active모드를 이용합니다.
-2. --crawler : 크롤러를 사용합니다.
-3. --depth : 크롤링 깊이를 설정합니다(기본값 : 2)
-4. --json : 결과 리포트를 JSON으로 받습니다.
-5. --html : HTML형식의 결과 리포트를 받습니다.
-6. --delay : 리퀘스트 사이에 딜레이를 넣습니다. 서버의 과부하를 방지합니다.
+### Build in Arch Linux
+```
+yay -S prs-scan
 
-## roadmap
-1. 영어 지원(?)
+prs-scan
+```
+
+
+### Build from source (optional)
+```bash
+git clone https://github.com/MOYARU/prs.git
+cd prs
+go build -o prs
+```
+
+### Makefile (optional)
+```bash
+make deps
+make
+make run
+```
+
+## Quick Start
+
+### Basic scan
+```bash
+prs https://example.com
+```
+
+### Active scan
+```bash
+prs https://example.com --active
+```
+
+### Crawl depth and delay
+
+```bash
+prs https://example.com --depth 3 --delay 300
+```
+
+### JSON report
+```bash
+prs https://example.com --json
+```
+
+## CLI Flags
+
+- `--active` Enable active checks
+- `--respect-robots` Respect `robots.txt` disallow rules during crawl
+- `--depth` Crawl depth (default: `2`)
+- `--json` Save JSON report
+- `--delay` Delay between requests in milliseconds
+
+## `.prs.yaml` Policy
+
+PRS supports runtime policy tuning through `.prs.yaml`:
+
+- `max_concurrency` Worker concurrency cap
+- `request_budget` Global outbound request budget (`0` = auto)
+- `active_cross_domain` Allow active checks outside root domain boundary
+- `passive_profile` Passive mode sensitivity profile:
+  - `strict` Lower-noise passive checks only
+  - `balanced` Default profile
+  - `aggressive` Enables all passive indicators/signals
+
+## Interactive Mode
+
+Run without target:
+```bash
+prs
+```
+
+Available commands:
+- `scan <target_url> [--active] [--respect-robots] [--depth N] [--json] [--delay MS]`
+- `port <host> [start-end]`
+- `repeater <METHOD> <url> [body]`
+- `fuzz <url_with_FUZZ> <wordlist_path>`
+- `help`
+- `clear` / `cls`
+- `exit` / `quit`
+
+Examples:
+```bash
+port 127.0.0.1
+port 127.0.0.1 1-10000
+```
+
+## Output and Severity
+
+- Findings include severity, confidence, evidence quality score, message, fix guidance, and evidence.
+- Final scan output includes elapsed time, for example:
+  - `Scan completed in 4.87s`
+- Some severities are centrally adjusted via:
+  - `internal/report/severity_policy.go`
+
+## Project Structure
+
+- `cmd/` CLI entrypoint
+- `internal/app/` scan runtime, interactive mode, output
+- `internal/crawler/` URL discovery and parsing
+- `internal/checks/` security checks by category
+- `internal/report/` finding model and severity policy
+- `internal/messages/` UI message catalog
+
+## Ethical Use
+
+Use PRS only on systems you own or have explicit permission to test.
+Do not scan unauthorized targets.
+
+## License
+
+MIT License
+

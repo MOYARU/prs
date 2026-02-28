@@ -1,63 +1,44 @@
 package http
 
 import (
+	"crypto/rand"
 	"fmt"
-	"io"
-	"math/rand" // Added for generateRandomString
 	"net/http"
 	"strings"
-	"time" // Added for seeding rand
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context" // New import with alias
-	msges "github.com/MOYARU/PRS-project/internal/messages"        // New import for messages
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/engine"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
-// CheckHTTPConfiguration performs various checks on HTTP protocol settings.
 func CheckHTTPConfiguration(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
 	if ctx.Response == nil {
 		return findings, nil
 	}
-
-	// TRACE 메서드 활성화
 	findings = append(findings, checkTRACEMethod(ctx)...)
 
-	// OPTIONS 과다 노출
 	findings = append(findings, checkOPTIONSMethod(ctx)...)
 
-	// PUT / DELETE 허용 여부 (Active scan only)
 	if ctx.Mode == ctxpkg.Active {
 		findings = append(findings, checkPUTDELETEMethods(ctx)...)
+		findings = append(findings, checkHostHeaderInjection(ctx)...)
+		findings = append(findings, checkCachePoisoningActive(ctx)...)
 	}
-
-	// HTTP 응답 코드 이상 (401/403 혼동) - Requires more context/logic, perhaps for specific paths.
-	// For now, this is a placeholder.
-
-	// Chunked encoding 취약 설정 - This is hard to detect passively from a single response without deep packet inspection.
-	// Placeholder for now.
-
-	// HTTP/2 설정 오류 - Check response headers for H2. If not, maybe try to force HTTP/2?
-	// Placeholder for now.
 
 	return findings, nil
 }
 
-// checkTRACEMethod checks if the TRACE method is enabled.
 func checkTRACEMethod(ctx *ctxpkg.Context) []report.Finding {
 	var findings []report.Finding
-	if ctx.FinalURL.Scheme != "https" { // Only check for TRACE over HTTPS to avoid plaintext issues
+	if ctx.FinalURL.Scheme != "https" {
 		return findings
 	}
 
-	// Make a TRACE request
-	req, err := http.NewRequest("TRACE", ctx.FinalURL.String(), nil)
+	req, err := ctxpkg.NewRequest(ctx, "TRACE", ctx.FinalURL.String(), nil)
 	if err != nil {
 		return findings
 	}
@@ -70,13 +51,12 @@ func checkTRACEMethod(ctx *ctxpkg.Context) []report.Finding {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
-		bodyBytes, err := io.ReadAll(resp.Body)
+		bodyBytes, err := engine.DecodeResponseBody(resp)
 		if err != nil {
 			return findings
 		}
 		bodyString := string(bodyBytes)
 
-		// If the response body contains the TRACE request itself, it's enabled
 		if strings.Contains(bodyString, "TRACE / HTTP/1.1") || strings.Contains(bodyString, "TRACE "+ctx.FinalURL.Path+" HTTP/1.1") {
 			msg := msges.GetMessage("TRACE_METHOD_ENABLED")
 			findings = append(findings, report.Finding{
@@ -85,6 +65,7 @@ func checkTRACEMethod(ctx *ctxpkg.Context) []report.Finding {
 				Severity: report.SeverityMedium,
 				Title:    msg.Title,
 				Message:  msg.Message,
+				Evidence: "Server responded with 200 OK to a TRACE request.",
 				Fix:      msg.Fix,
 			})
 		}
@@ -92,12 +73,11 @@ func checkTRACEMethod(ctx *ctxpkg.Context) []report.Finding {
 	return findings
 }
 
-// checkOPTIONSMethod checks for over-exposed OPTIONS method.
 func checkOPTIONSMethod(ctx *ctxpkg.Context) []report.Finding {
 	var findings []report.Finding
 
 	// Make an OPTIONS request
-	req, err := http.NewRequest("OPTIONS", ctx.FinalURL.String(), nil)
+	req, err := ctxpkg.NewRequest(ctx, "OPTIONS", ctx.FinalURL.String(), nil)
 	if err != nil {
 		return findings
 	}
@@ -112,7 +92,7 @@ func checkOPTIONSMethod(ctx *ctxpkg.Context) []report.Finding {
 		allowHeader := resp.Header.Get("Allow")
 		if allowHeader != "" {
 			allowedMethods := strings.Split(allowHeader, ",")
-			if len(allowedMethods) > 3 { // More than GET, HEAD, POST typically indicates over-exposure
+			if len(allowedMethods) > 3 {
 				msg := msges.GetMessage("OPTIONS_OVER_EXPOSED")
 				findings = append(findings, report.Finding{
 					ID:       "OPTIONS_OVER_EXPOSED",
@@ -120,6 +100,7 @@ func checkOPTIONSMethod(ctx *ctxpkg.Context) []report.Finding {
 					Severity: report.SeverityLow,
 					Title:    msg.Title,
 					Message:  fmt.Sprintf(msg.Message, allowHeader),
+					Evidence: fmt.Sprintf("Allowed methods: %s", allowHeader),
 					Fix:      msg.Fix,
 				})
 			}
@@ -128,13 +109,19 @@ func checkOPTIONSMethod(ctx *ctxpkg.Context) []report.Finding {
 	return findings
 }
 
-// checkPUTDELETEMethods checks if PUT/DELETE methods are allowed (active scan).
+// checkPUTDELETEMethods checks if PUT/DELETE methods are allowed
 func checkPUTDELETEMethods(ctx *ctxpkg.Context) []report.Finding {
 	var findings []report.Finding
 	testURL := ctx.FinalURL.String() + "/prs_test_file_" + generateRandomString(10) // Use a random file name
 
+	// Ensure cleanup of the test file
+	defer func() {
+		cleanupReq, _ := ctxpkg.NewRequest(ctx, "DELETE", testURL, nil)
+		ctx.HTTPClient.Do(cleanupReq)
+	}()
+
 	// Test PUT
-	putReq, err := http.NewRequest("PUT", testURL, strings.NewReader("test_content"))
+	putReq, err := ctxpkg.NewRequest(ctx, "PUT", testURL, strings.NewReader("test_content"))
 	if err != nil {
 		return findings
 	}
@@ -149,13 +136,14 @@ func checkPUTDELETEMethods(ctx *ctxpkg.Context) []report.Finding {
 				Severity: report.SeverityHigh,
 				Title:    msg.Title,
 				Message:  fmt.Sprintf(msg.Message, testURL),
+				Evidence: fmt.Sprintf("Received status code %d for PUT request.", putResp.StatusCode),
 				Fix:      msg.Fix,
 			})
 		}
 	}
 
 	// Test DELETE
-	deleteReq, err := http.NewRequest("DELETE", testURL, nil)
+	deleteReq, err := ctxpkg.NewRequest(ctx, "DELETE", testURL, nil)
 	if err != nil {
 		return findings
 	}
@@ -170,6 +158,7 @@ func checkPUTDELETEMethods(ctx *ctxpkg.Context) []report.Finding {
 				Severity: report.SeverityHigh,
 				Title:    msg.Title,
 				Message:  fmt.Sprintf(msg.Message, testURL),
+				Evidence: fmt.Sprintf("Received status code %d for DELETE request.", deleteResp.StatusCode),
 				Fix:      msg.Fix,
 			})
 		}
@@ -182,8 +171,11 @@ func checkPUTDELETEMethods(ctx *ctxpkg.Context) []report.Finding {
 func generateRandomString(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
+	if _, err := rand.Read(b); err != nil {
+		return "fallback"
+	}
 	for i := range b {
-		b[i] = charset[rand.Intn(len(charset))] // rand is not cryptographically secure, but fine for file names
+		b[i] = charset[int(b[i])%len(charset)]
 	}
 	return string(b)
 }

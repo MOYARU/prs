@@ -7,30 +7,27 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context" // New import with alias
-	msges "github.com/MOYARU/PRS-project/internal/messages"        // New import for messages
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
-// CheckJSONUnexpectedField checks for application behavior when unexpected fields are inserted into JSON requests.
 func CheckJSONUnexpectedField(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
 	if ctx.Mode == ctxpkg.Passive {
-		return findings, nil // This is an active check
+		return checkJSONUnexpectedFieldPassive(ctx), nil
 	}
-
-	// Only proceed if the original response indicates a JSON endpoint
+	// Only proceed if the original response is JSON
 	if !strings.Contains(ctx.Response.Header.Get("Content-Type"), "application/json") {
 		return findings, nil
 	}
 
-	// Attempt to get a JSON body from the original response for modification
+	// Parse the original JSON body
 	var originalJSON map[string]interface{}
 	err := json.Unmarshal(ctx.BodyBytes, &originalJSON)
 	if err != nil {
-		// If original body is not valid JSON, or empty, create a dummy one
 		originalJSON = make(map[string]interface{})
 	}
 
@@ -42,8 +39,7 @@ func CheckJSONUnexpectedField(ctx *ctxpkg.Context) ([]report.Finding, error) {
 		return findings, fmt.Errorf("failed to marshal modified JSON: %w", err)
 	}
 
-	// Send the request with the modified JSON
-	req, err := http.NewRequest("POST", ctx.FinalURL.String(), bytes.NewReader(modifiedJSON))
+	req, err := ctxpkg.NewRequest(ctx, "POST", ctx.FinalURL.String(), bytes.NewReader(modifiedJSON))
 	if err != nil {
 		return findings, err
 	}
@@ -55,24 +51,60 @@ func CheckJSONUnexpectedField(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	}
 	defer resp.Body.Close()
 
-	// Heuristic: If the response is 200 OK and doesn't explicitly reject the unexpected field, it's a finding.
-	// A robust check would involve comparing against a "clean" request response.
-	// For now, simple success without explicit error is a weak indicator.
+	// If the server still accepts the request with unexpected fields, flag it.
 	if resp.StatusCode == http.StatusOK {
-		// Further analysis needed here to confirm if the field was actually processed or just ignored.
-		// For simplicity, if it's 200 OK and not an obvious error response, we report.
 		msg := msges.GetMessage("JSON_UNEXPECTED_FIELD_INSERTION")
 		findings = append(findings, report.Finding{
 			ID:                         "JSON_UNEXPECTED_FIELD_INSERTION",
 			Category:                   string(checks.CategoryAPISecurity),
-			Severity:                   report.SeverityLow, // Low severity as it's often ignored by frameworks
+			Severity:                   report.SeverityLow,
 			Confidence:                 report.ConfidenceMedium,
 			Title:                      msg.Title,
 			Message:                    msg.Message,
+			Evidence:                   "Server responded with 200 OK to a POST request containing an unexpected JSON field ('prs_unexpected_field').",
 			Fix:                        msg.Fix,
 			IsPotentiallyFalsePositive: msg.IsPotentiallyFalsePositive,
 		})
 	}
 
 	return findings, nil
+}
+
+func CheckJSONUnexpectedFieldPassive(ctx *ctxpkg.Context) ([]report.Finding, error) {
+	return checkJSONUnexpectedFieldPassive(ctx), nil
+}
+
+func checkJSONUnexpectedFieldPassive(ctx *ctxpkg.Context) []report.Finding {
+	var findings []report.Finding
+	if ctx == nil || ctx.Response == nil || ctx.FinalURL == nil {
+		return findings
+	}
+
+	contentType := strings.ToLower(ctx.Response.Header.Get("Content-Type"))
+	if !strings.Contains(contentType, "application/json") {
+		return findings
+	}
+
+	allow := strings.ToUpper(ctx.Response.Header.Get("Allow"))
+	pathLower := strings.ToLower(ctx.FinalURL.Path)
+	writeExposed := strings.Contains(allow, "POST") || strings.Contains(allow, "PUT") || strings.Contains(allow, "PATCH")
+	apiLikePath := strings.Contains(pathLower, "/api") || strings.Contains(pathLower, "/v1/") || strings.Contains(pathLower, "/v2/")
+
+	if !writeExposed && !apiLikePath {
+		return findings
+	}
+
+	findings = append(findings, report.Finding{
+		ID:                         "JSON_UNEXPECTED_FIELD_PASSIVE_INDICATOR",
+		Category:                   string(checks.CategoryAPISecurity),
+		Severity:                   report.SeverityInfo,
+		Confidence:                 report.ConfidenceLow,
+		Title:                      "JSON Schema Validation Weakness (Passive Indicator)",
+		Message:                    "JSON API endpoint characteristics detected. Run active check to verify whether unexpected JSON fields are improperly accepted.",
+		Evidence:                   fmt.Sprintf("Content-Type=%q, Allow=%q, Path=%q", ctx.Response.Header.Get("Content-Type"), ctx.Response.Header.Get("Allow"), ctx.FinalURL.Path),
+		Fix:                        "Enforce strict JSON schema validation (reject unknown fields), validate request bodies server-side, and return clear 4xx errors for invalid input.",
+		IsPotentiallyFalsePositive: true,
+	})
+
+	return findings
 }

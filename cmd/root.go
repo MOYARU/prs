@@ -1,27 +1,29 @@
 /*
-Copyright © 2026 モヤル <rbffo@icloud.com>
+Copyright (c) 2026 moyaru <rbffo@icloud.com>
 */
+
 package cmd
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/MOYARU/PRS-project/internal/app/interactive"
-	"github.com/MOYARU/PRS-project/internal/app/scan"
-	"github.com/MOYARU/PRS-project/internal/app/ui"
+	"github.com/MOYARU/prs/internal/app/interactive"
+	"github.com/MOYARU/prs/internal/app/scan"
+	"github.com/MOYARU/prs/internal/app/ui"
+	appver "github.com/MOYARU/prs/internal/version"
 	"github.com/spf13/cobra"
 )
 
 var (
-	version = "1.0.0"
+	version = appver.Value
 
-	activeScan bool
-	jsonOutput bool
-	htmlOutput bool
-	crawl      bool
-	depth      int
-	delay      int
+	activeScan    bool
+	jsonOutput    bool
+	htmlOutput    bool
+	respectRobots bool
+	depth         int
+	delay         int
 )
 
 var rootCmd = &cobra.Command{
@@ -32,19 +34,16 @@ var rootCmd = &cobra.Command{
 		if len(args) == 0 {
 			interactive.RunInteractiveMode(cmd)
 		} else {
-			// One-shot execution for provided arguments
 			target := args[0]
-			err := scan.RunScan(target, activeScan, crawl, depth, jsonOutput, htmlOutput, delay)
+			err := scan.RunScan(target, activeScan, true, respectRobots, depth, jsonOutput, htmlOutput, delay, false)
 			if err != nil {
-				fmt.Printf("%s❌ Scan failed: %v%s\n", ui.ColorRed, err, ui.ColorReset)
+				fmt.Printf("%sScan failed: %v%s\n", ui.ColorRed, err, ui.ColorReset)
 				os.Exit(1)
 			}
 		}
 	},
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
@@ -52,32 +51,34 @@ func Execute() {
 	}
 }
 func init() {
+	rootCmd.Version = version
+
 	rootCmd.Flags().BoolVar(&activeScan, "active", false, "Enable active scan (disabled by default)")
 	rootCmd.Flags().BoolVar(&jsonOutput, "json", false, "Output result as JSON")
 	rootCmd.Flags().BoolVar(&htmlOutput, "html", false, "Output result as HTML")
-	rootCmd.Flags().BoolVar(&crawl, "crawler", false, "Enable crawling to discover more pages")
+	rootCmd.Flags().BoolVar(&respectRobots, "respect-robots", false, "Respect robots.txt disallow rules during crawling")
 	rootCmd.Flags().IntVar(&depth, "depth", 2, "Crawling depth (default: 2)")
 	rootCmd.Flags().IntVar(&delay, "delay", 0, "Delay between requests in milliseconds (e.g., 500)")
-	// Mark flags as hidden if in interactive mode, or just don't set them for interactive.
-	// For now, keep them as is.
 
 	rootCmd.Long = ui.AsciiArt + `
-PRS (Passive Reconnaissance Scanner) is a lightweight, defensive-first web security scanner.
-It performs various checks to identify common vulnerabilities and misconfigurations in web applications and infrastructure.
+PRS is a lightweight, defensive-first web security scanner.
 
 Usage:
    prs [target_url] [flags]
 
 Example:
   prs https://example.com
-  prs https://example.com --crawler --depth 3
+  prs https://example.com --depth 3
   prs https://example.com --active
+
+  port 127.0.0.1
+  port 127.0.0.1 1-10000
 
 Flags:
   --active             Enable active scan (disabled by default)
-  --crawler            Enable crawling to discover more pages
+  --respect-robots     Respect robots.txt disallow rules during crawling
   --depth              Crawling depth (default: 2)
-  --json               Output result as JSON (not yet implemented)
+  --json               Output result as JSON
   --html               Output result as HTML
   --delay              Delay between requests in milliseconds
 

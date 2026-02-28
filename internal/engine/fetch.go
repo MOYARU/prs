@@ -1,10 +1,13 @@
 package engine
 
 import (
-	"crypto/tls" // Added import
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/url"
+	"time"
+
+	appver "github.com/MOYARU/prs/internal/version"
 )
 
 type FetchResult struct {
@@ -22,7 +25,7 @@ func Fetch(target string) (*FetchResult, error) {
 		return nil, err
 	}
 
-	resp, err := fetchOnce(initialURL.String(), false, nil) // Pass nil for default TLS config
+	resp, err := fetchOnce(initialURL.String(), false, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -35,12 +38,14 @@ func Fetch(target string) (*FetchResult, error) {
 	if isRedirect(resp.StatusCode) {
 		location := resp.Header.Get("Location")
 		if location == "" {
-			return result, nil
+			resp.Body.Close()
+			return nil, fmt.Errorf("redirect response missing Location header")
 		}
 
 		redirectURL, err := resolveURL(initialURL, location)
 		if err != nil {
-			return result, nil
+			resp.Body.Close()
+			return nil, fmt.Errorf("failed to resolve redirect URL: %w", err)
 		}
 
 		resp.Body.Close()
@@ -62,6 +67,21 @@ func Fetch(target string) (*FetchResult, error) {
 	return result, nil
 }
 
+type DelayedTransport struct {
+	Transport http.RoundTripper
+	Delay     time.Duration
+}
+
+func (t *DelayedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.Delay > 0 {
+		time.Sleep(t.Delay)
+	}
+	if t.Transport == nil {
+		return http.DefaultTransport.RoundTrip(req)
+	}
+	return t.Transport.RoundTrip(req)
+}
+
 func fetchOnce(target string, allowRedirect bool, tlsConfig *tls.Config) (*http.Response, error) {
 	client := NewHTTPClient(allowRedirect, tlsConfig)
 
@@ -70,7 +90,7 @@ func fetchOnce(target string, allowRedirect bool, tlsConfig *tls.Config) (*http.
 		return nil, err
 	}
 
-	req.Header.Set("User-Agent", "secscan/0.1.0 (defensive security scanner)")
+	req.Header.Set("User-Agent", appver.ScannerUserAgent())
 
 	return client.Do(req)
 }
@@ -136,12 +156,14 @@ func FetchWithTLSConfig(target string, tlsConfig *tls.Config) (*FetchResult, err
 	if isRedirect(resp.StatusCode) {
 		location := resp.Header.Get("Location")
 		if location == "" {
-			return result, nil
+			resp.Body.Close()
+			return nil, fmt.Errorf("redirect response missing Location header")
 		}
 
 		redirectURL, err := resolveURL(initialURL, location)
 		if err != nil {
-			return result, nil
+			resp.Body.Close()
+			return nil, fmt.Errorf("failed to resolve redirect URL: %w", err)
 		}
 		result.RedirectTarget = redirectURL
 		result.Redirected = true

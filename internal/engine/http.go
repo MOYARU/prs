@@ -14,9 +14,15 @@ func NewHTTPClient(allowRedirect bool, tlsConfig *tls.Config) *http.Client {
 	}
 
 	client := &http.Client{
-		Timeout: 11 * time.Second, // Increased timeout to 11 seconds
+		Timeout: 11 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: tlsConfig,
+			TLSClientConfig:       tlsConfig,
+			ForceAttemptHTTP2:     true,
+			MaxIdleConns:          200,
+			MaxIdleConnsPerHost:   32,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   5 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
 		},
 	}
 	if !allowRedirect {

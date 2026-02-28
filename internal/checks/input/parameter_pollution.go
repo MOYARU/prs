@@ -2,15 +2,14 @@ package input
 
 import (
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context"
-	"github.com/MOYARU/PRS-project/internal/engine"
-	msges "github.com/MOYARU/PRS-project/internal/messages"
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/engine"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 // CheckParameterPollution checks for Parameter Pollution vulnerabilities.
@@ -18,7 +17,7 @@ func CheckParameterPollution(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
 	if ctx.Mode == ctxpkg.Passive {
-		return findings, nil
+		return checkParameterPollutionPassive(ctx), nil
 	}
 
 	u, _ := url.Parse(ctx.FinalURL.String())
@@ -28,15 +27,24 @@ func CheckParameterPollution(ctx *ctxpkg.Context) ([]report.Finding, error) {
 		return findings, nil
 	}
 
-	client := engine.NewHTTPClient(false, nil)
+	originalReq, err := ctxpkg.NewRequest(ctx, "GET", u.String(), nil)
+	if err != nil {
+		return findings, nil
+	}
+	originalResp, err := ctx.HTTPClient.Do(originalReq)
+	if err != nil {
+		return findings, nil
+	}
+	originalBodyBytes, _ := engine.DecodeResponseBody(originalResp)
+	originalResp.Body.Close()
+	originalBody := string(originalBodyBytes)
+	originalStatus := originalResp.StatusCode
 
 	for param, values := range queryParams {
 		if len(values) == 0 {
 			continue
 		}
 
-		// Construct URL with duplicated parameter
-		// ?param=value&param=polluted
 		newParams := url.Values{}
 		for k, v := range queryParams {
 			newParams[k] = v
@@ -44,19 +52,21 @@ func CheckParameterPollution(ctx *ctxpkg.Context) ([]report.Finding, error) {
 		newParams.Add(param, "polluted_value")
 
 		u.RawQuery = newParams.Encode()
-		req, err := http.NewRequest("GET", u.String(), nil)
+		req, err := ctxpkg.NewRequest(ctx, "GET", u.String(), nil)
 		if err != nil {
 			continue
 		}
 
-		resp, err := client.Do(req)
+		resp, err := ctx.HTTPClient.Do(req)
 		if err != nil {
 			continue
 		}
-		defer resp.Body.Close()
-
 		bodyBytes, _ := engine.DecodeResponseBody(resp)
-		if strings.Contains(string(bodyBytes), "polluted_value") {
+		resp.Body.Close()
+		bodyString := string(bodyBytes)
+		if resp.StatusCode != originalStatus &&
+			strings.Contains(bodyString, "polluted_value") &&
+			!strings.Contains(originalBody, "polluted_value") {
 			msg := msges.GetMessage("PARAMETER_POLLUTION_DETECTED")
 			findings = append(findings, report.Finding{
 				ID:                         "PARAMETER_POLLUTION_DETECTED",
@@ -72,4 +82,60 @@ func CheckParameterPollution(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	}
 
 	return findings, nil
+}
+
+func CheckParameterPollutionPassive(ctx *ctxpkg.Context) ([]report.Finding, error) {
+	return checkParameterPollutionPassive(ctx), nil
+}
+
+func checkParameterPollutionPassive(ctx *ctxpkg.Context) []report.Finding {
+	var findings []report.Finding
+	if ctx == nil || ctx.FinalURL == nil {
+		return findings
+	}
+
+	rawQuery := ctx.FinalURL.RawQuery
+	if rawQuery == "" {
+		return findings
+	}
+
+	counts := make(map[string]int)
+	for _, pair := range strings.Split(rawQuery, "&") {
+		if pair == "" {
+			continue
+		}
+		key := pair
+		if i := strings.Index(pair, "="); i >= 0 {
+			key = pair[:i]
+		}
+		decodedKey, err := url.QueryUnescape(key)
+		if err != nil {
+			decodedKey = key
+		}
+		counts[decodedKey]++
+	}
+
+	var duplicated []string
+	for k, c := range counts {
+		if c > 1 {
+			duplicated = append(duplicated, fmt.Sprintf("%s(x%d)", k, c))
+		}
+	}
+	if len(duplicated) == 0 {
+		return findings
+	}
+
+	findings = append(findings, report.Finding{
+		ID:                         "PARAMETER_POLLUTION_PASSIVE_INDICATOR",
+		Category:                   string(checks.CategoryInputHandling),
+		Severity:                   report.SeverityInfo,
+		Confidence:                 report.ConfidenceLow,
+		Title:                      "Duplicate Query Parameters Found (Passive Indicator)",
+		Message:                    fmt.Sprintf("Duplicate query parameter keys were found in the URL: %s", strings.Join(duplicated, ", ")),
+		Evidence:                   "Raw query: " + rawQuery,
+		Fix:                        "Normalize or reject duplicated query parameters at the edge and backend, and define deterministic parsing behavior.",
+		IsPotentiallyFalsePositive: true,
+	})
+
+	return findings
 }

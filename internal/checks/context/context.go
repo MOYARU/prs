@@ -1,6 +1,7 @@
 package context
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 )
@@ -14,13 +15,14 @@ const (
 
 type Context struct {
 	Target            string
+	RequestContext    context.Context
 	Mode              ScanMode
 	InitialURL        *url.URL
 	FinalURL          *url.URL
 	Response          *http.Response
-	BodyBytes         []byte // Added to hold the response body for multiple checks
+	BodyBytes         []byte
 	RedirectTarget    *url.URL
 	Redirected        bool
 	RedirectedToHTTPS bool
-	HTTPClient        *http.Client // Shared HTTP client with delay configuration
+	HTTPClient        *http.Client
 }

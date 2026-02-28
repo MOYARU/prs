@@ -2,31 +2,22 @@ package api
 
 import (
 	"fmt"
-	"net/http"
 	"strings"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context" // New import with alias
-	msges "github.com/MOYARU/PRS-project/internal/messages"        // New import for messages
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
-// CheckMethodOverride checks if HTTP Method Override is allowed.
 func CheckMethodOverride(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
 	if ctx.Mode == ctxpkg.Passive {
-		return findings, nil // Method Override check is active
+		return checkMethodOverridePassive(ctx), nil
 	}
 
-	// For Method Override, we send a POST request with X-HTTP-Method-Override header.
-	// We'll primarily check for responses that indicate the override was processed.
-	// We specifically avoid state-changing methods on known resources.
-	// For now, we'll try overriding to DELETE on the current URL.
-	// We only check allowance, not actual side effects.
-
-	// 1. Send a normal POST request (baseline)
-	normalPostReq, err := http.NewRequest("POST", ctx.FinalURL.String(), strings.NewReader(""))
+	normalPostReq, err := ctxpkg.NewRequest(ctx, "POST", ctx.FinalURL.String(), strings.NewReader(""))
 	if err != nil {
 		return findings, err
 	}
@@ -36,9 +27,8 @@ func CheckMethodOverride(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	}
 	defer normalPostResp.Body.Close()
 
-	// 2. Send a POST request with Method Override (e.g., to DELETE)
-	overrideMethod := "DELETE" // Try to override POST to DELETE
-	overridePostReq, err := http.NewRequest("POST", ctx.FinalURL.String(), strings.NewReader(""))
+	overrideMethod := "DELETE"
+	overridePostReq, err := ctxpkg.NewRequest(ctx, "POST", ctx.FinalURL.String(), strings.NewReader(""))
 	if err != nil {
 		return findings, err
 	}
@@ -49,25 +39,58 @@ func CheckMethodOverride(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	}
 	defer overridePostResp.Body.Close()
 
-	// Heuristic: If overriding POST to DELETE yields a different response than normal POST,
-	// and especially if it's a 200 OK or 204 No Content for a DELETE that shouldn't succeed with POST.
-	// Or if it reflects an error specific to the DELETE method.
-	if normalPostResp.StatusCode != overridePostResp.StatusCode ||
-		(overridePostResp.StatusCode == http.StatusOK || overridePostResp.StatusCode == http.StatusNoContent) {
-		// Further checks needed to ensure it's not a generic error.
-		// For simplicity, if status codes are different, or it's a successful override, report it.
+	normalSuccess := normalPostResp.StatusCode >= 200 && normalPostResp.StatusCode < 300
+	overrideSuccess := overridePostResp.StatusCode >= 200 && overridePostResp.StatusCode < 300
+	if !normalSuccess && overrideSuccess && normalPostResp.StatusCode != overridePostResp.StatusCode {
 		msg := msges.GetMessage("METHOD_OVERRIDE_ALLOWED")
 		findings = append(findings, report.Finding{
 			ID:                         "METHOD_OVERRIDE_ALLOWED",
 			Category:                   string(checks.CategoryAPISecurity),
 			Severity:                   report.SeverityMedium,
-			Confidence:                 report.ConfidenceMedium,
+			Confidence:                 report.ConfidenceLow,
 			Title:                      msg.Title,
 			Message:                    fmt.Sprintf(msg.Message, overrideMethod),
+			Evidence:                   fmt.Sprintf("Normal POST failed with %d, but POST + X-HTTP-Method-Override:%s succeeded with %d.", normalPostResp.StatusCode, overrideMethod, overridePostResp.StatusCode),
 			Fix:                        msg.Fix,
-			IsPotentiallyFalsePositive: msg.IsPotentiallyFalsePositive,
+			IsPotentiallyFalsePositive: true,
 		})
 	}
 
 	return findings, nil
+}
+
+func CheckMethodOverridePassive(ctx *ctxpkg.Context) ([]report.Finding, error) {
+	return checkMethodOverridePassive(ctx), nil
+}
+
+func checkMethodOverridePassive(ctx *ctxpkg.Context) []report.Finding {
+	var findings []report.Finding
+	if ctx == nil || ctx.Response == nil {
+		return findings
+	}
+
+	allow := strings.ToUpper(ctx.Response.Header.Get("Allow"))
+	acah := strings.ToUpper(ctx.Response.Header.Get("Access-Control-Allow-Headers"))
+	if allow == "" && acah == "" {
+		return findings
+	}
+
+	// Non-intrusive signal only: server advertises method override-related headers.
+	if strings.Contains(acah, "X-HTTP-METHOD-OVERRIDE") ||
+		strings.Contains(acah, "X-METHOD-OVERRIDE") ||
+		strings.Contains(acah, "X-HTTP-METHOD") {
+		findings = append(findings, report.Finding{
+			ID:                         "METHOD_OVERRIDE_PASSIVE_INDICATOR",
+			Category:                   string(checks.CategoryAPISecurity),
+			Severity:                   report.SeverityInfo,
+			Confidence:                 report.ConfidenceLow,
+			Title:                      "Method Override Header Accepted (Passive Indicator)",
+			Message:                    "Response headers suggest HTTP method override headers may be accepted by the server.",
+			Evidence:                   fmt.Sprintf("Access-Control-Allow-Headers=%q, Allow=%q", ctx.Response.Header.Get("Access-Control-Allow-Headers"), ctx.Response.Header.Get("Allow")),
+			Fix:                        "If method override is unnecessary, block override headers (X-HTTP-Method-Override/X-Method-Override) at the gateway and backend.",
+			IsPotentiallyFalsePositive: true,
+		})
+	}
+
+	return findings
 }

@@ -1,0 +1,5 @@
+prs
+prs.exe
+*.exe
+prs_report_*.html
+prs_report_*.json

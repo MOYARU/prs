@@ -6,10 +6,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context" // New import with alias
-	msges "github.com/MOYARU/PRS-project/internal/messages"        // New import for messages
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 const hstsMaxAgeBaseline = 31536000
@@ -22,53 +22,49 @@ func CheckSecurityHeaders(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	headers := ctx.Response.Header
 	var findings []report.Finding
 
-	findings = append(findings, missingHeader(headers, "CONTENT_SECURITY_POLICY_MISSING", checks.CategorySecurityHeaders, report.SeverityMedium)...)
-	findings = append(findings, missingHeader(headers, "X_FRAME_OPTIONS_MISSING", checks.CategorySecurityHeaders, report.SeverityLow)...)
-	findings = append(findings, missingHeader(headers, "X_CONTENT_TYPE_OPTIONS_MISSING", checks.CategorySecurityHeaders, report.SeverityLow)...)
-	findings = append(findings, missingHeader(headers, "REFERRER_POLICY_MISSING", checks.CategorySecurityHeaders, report.SeverityLow)...)
-	findings = append(findings, missingHeader(headers, "PERMISSIONS_POLICY_MISSING", checks.CategorySecurityHeaders, report.SeverityLow)...)
-	findings = append(findings, missingHeader(headers, "CROSS_ORIGIN_OPENER_POLICY_MISSING", checks.CategorySecurityHeaders, report.SeverityLow)...)
-	findings = append(findings, missingHeader(headers, "CROSS_ORIGIN_EMBEDDER_POLICY_MISSING", checks.CategorySecurityHeaders, report.SeverityLow)...)
-	findings = append(findings, missingHeader(headers, "CROSS_ORIGIN_RESOURCE_POLICY_MISSING", checks.CategorySecurityHeaders, report.SeverityLow)...)
+	// Check for missing headers and aggregate them
+	headersToCheck := []struct {
+		Name     string
+		Severity report.Severity
+	}{
+		{"Content-Security-Policy", report.SeverityMedium},
+		{"X-Frame-Options", report.SeverityLow},
+		{"X-Content-Type-Options", report.SeverityLow},
+		{"Referrer-Policy", report.SeverityLow},
+		{"Permissions-Policy", report.SeverityLow},
+		{"Cross-Origin-Opener-Policy", report.SeverityLow},
+		{"Cross-Origin-Embedder-Policy", report.SeverityLow},
+		{"Cross-Origin-Resource-Policy", report.SeverityLow},
+	}
+
+	var missing []string
+	maxSeverity := report.SeverityLow
+
+	for _, h := range headersToCheck {
+		if headers.Get(h.Name) == "" {
+			missing = append(missing, h.Name)
+			if h.Severity == report.SeverityMedium {
+				maxSeverity = report.SeverityMedium
+			}
+		}
+	}
+
+	if len(missing) > 0 {
+		msg := msges.GetMessage("MISSING_SECURITY_HEADERS")
+		findings = append(findings, report.Finding{
+			ID:       "MISSING_SECURITY_HEADERS",
+			Category: string(checks.CategorySecurityHeaders),
+			Severity: maxSeverity,
+			Title:    msg.Title,
+			Message:  fmt.Sprintf(msg.Message, strings.Join(missing, ", ")),
+			Fix:      msg.Fix,
+		})
+	}
 
 	findings = append(findings, checkHSTS(ctx, headers)...)
-	findings = append(findings, checkCookieFlags(ctx.Response)...)
 	findings = append(findings, checkInfoHeaders(headers)...)
 
 	return findings, nil
-}
-
-// missingHeader checks for a missing header and returns a finding if it's absent.
-// It now takes the message ID as a parameter.
-func missingHeader(headers http.Header, msgID string, category checks.Category, severity report.Severity) []report.Finding {
-	// Derive the actual header name from the message ID for checking presence.
-	// This is a heuristic and might need refinement if IDs don't directly map to header names.
-	// For example, "CONTENT_SECURITY_POLICY_MISSING" -> "Content-Security-Policy"
-	headerName := strings.ReplaceAll(strings.ToLower(msgID), "_MISSING", "")
-	headerName = strings.ReplaceAll(headerName, "_", "-")
-	headerName = strings.Replace(headerName, "content-security-policy", "Content-Security-Policy", 1) // Specific capitalization
-	headerName = strings.Replace(headerName, "x-frame-options", "X-Frame-Options", 1)
-	headerName = strings.Replace(headerName, "x-content-type-options", "X-Content-Type-Options", 1)
-	headerName = strings.Replace(headerName, "referrer-policy", "Referrer-Policy", 1)
-	headerName = strings.Replace(headerName, "permissions-policy", "Permissions-Policy", 1)
-	headerName = strings.Replace(headerName, "cross-origin-opener-policy", "Cross-Origin-Opener-Policy", 1)
-	headerName = strings.Replace(headerName, "cross-origin-embedder-policy", "Cross-Origin-Embedder-Policy", 1)
-	headerName = strings.Replace(headerName, "cross-origin-resource-policy", "Cross-Origin-Resource-Policy", 1)
-
-	if headers.Get(headerName) != "" {
-		return nil
-	}
-	msg := msges.GetMessage(msgID)
-	return []report.Finding{
-		{
-			ID:       msgID,
-			Category: string(category),
-			Severity: severity,
-			Title:    msg.Title,
-			Message:  msg.Message,
-			Fix:      msg.Fix,
-		},
-	}
 }
 
 func checkHSTS(ctx *ctxpkg.Context, headers http.Header) []report.Finding {
@@ -114,7 +110,11 @@ func parseHSTSMaxAge(hsts string) int {
 	for _, part := range parts {
 		part = strings.TrimSpace(part)
 		if strings.HasPrefix(strings.ToLower(part), "max-age=") {
-			value := strings.TrimSpace(strings.SplitN(part, "=", 2)[1])
+			kv := strings.SplitN(part, "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			value := strings.TrimSpace(kv[1])
 			parsed, err := strconv.Atoi(value)
 			if err == nil {
 				return parsed

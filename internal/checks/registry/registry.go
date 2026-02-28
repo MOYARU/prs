@@ -1,23 +1,23 @@
 package registry
 
 import (
-	"github.com/MOYARU/PRS-project/internal/checks"
-	"github.com/MOYARU/PRS-project/internal/checks/application"
-	"github.com/MOYARU/PRS-project/internal/checks/authsession"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context" // New import with alias
-	"github.com/MOYARU/PRS-project/internal/checks/headers"
-	"github.com/MOYARU/PRS-project/internal/checks/http"
-	"github.com/MOYARU/PRS-project/internal/checks/network"
-
-	"github.com/MOYARU/PRS-project/internal/checks/api"             // New import
-	"github.com/MOYARU/PRS-project/internal/checks/components"      // New import
-	"github.com/MOYARU/PRS-project/internal/checks/deserialization" // New import
-	"github.com/MOYARU/PRS-project/internal/checks/info"            // New import
-	"github.com/MOYARU/PRS-project/internal/checks/injection"       // New import
-	"github.com/MOYARU/PRS-project/internal/checks/input"           // New import
-	"github.com/MOYARU/PRS-project/internal/checks/packet"          // New import
-	"github.com/MOYARU/PRS-project/internal/checks/ssrf"            // New import
-	"github.com/MOYARU/PRS-project/internal/checks/web"             // New import
+	"github.com/MOYARU/prs/internal/checks"
+	"github.com/MOYARU/prs/internal/checks/api"
+	"github.com/MOYARU/prs/internal/checks/application"
+	"github.com/MOYARU/prs/internal/checks/authsession"
+	"github.com/MOYARU/prs/internal/checks/components"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/checks/deserialization"
+	"github.com/MOYARU/prs/internal/checks/headers"
+	"github.com/MOYARU/prs/internal/checks/http"
+	"github.com/MOYARU/prs/internal/checks/info"
+	"github.com/MOYARU/prs/internal/checks/injection"
+	"github.com/MOYARU/prs/internal/checks/input"
+	"github.com/MOYARU/prs/internal/checks/network"
+	"github.com/MOYARU/prs/internal/checks/packet"
+	"github.com/MOYARU/prs/internal/checks/ssrf"
+	"github.com/MOYARU/prs/internal/checks/tokenreuse"
+	"github.com/MOYARU/prs/internal/checks/web"
 )
 
 func DefaultChecks() []checks.Check {
@@ -25,185 +25,402 @@ func DefaultChecks() []checks.Check {
 		{
 			ID:          "NETWORK_TRANSPORT_SECURITY",
 			Category:    checks.CategoryNetwork,
-			Title:       "네트워크 전송 보안 기본 점검",
-			Description: "HTTPS 사용 및 강제 리다이렉트 여부를 점검합니다.",
+			Title:       "Network Transport Security Check",
+			Description: "Checks HTTPS usage and secure transport baseline settings.",
 			Mode:        ctxpkg.Passive,
 			Run:         network.CheckTransportSecurity,
 		},
 		{
 			ID:          "SECURITY_HEADERS",
 			Category:    checks.CategorySecurityHeaders,
-			Title:       "보안 헤더 점검",
-			Description: "CSP, HSTS, XFO 등 주요 보안 헤더를 점검합니다.",
+			Title:       "Security Headers Check",
+			Description: "Checks key security headers such as CSP, HSTS, and X-Frame-Options.",
 			Mode:        ctxpkg.Passive,
 			Run:         headers.CheckSecurityHeaders,
 		},
 		{
+			ID:          "CSP_QUALITY_PASSIVE",
+			Category:    checks.CategorySecurityHeaders,
+			Title:       "CSP Quality Check (Passive)",
+			Description: "Scores CSP policy quality beyond header presence to reduce false confidence.",
+			Mode:        ctxpkg.Passive,
+			Run:         headers.CheckCSPQualityPassive,
+		},
+		{
 			ID:          "TLS_CONFIGURATION",
 			Category:    checks.CategoryNetwork,
-			Title:       "TLS 설정 점검",
-			Description: "TLS 버전, 암호 스위트, 인증서 유효성(만료, 호스트네임), OCSP Stapling 여부를 점검합니다.",
+			Title:       "TLS Configuration Check",
+			Description: "Checks TLS versions, weak ciphers, certificate validity, hostname match, and OCSP stapling.",
 			Mode:        ctxpkg.Passive,
 			Run:         network.CheckTLSConfiguration,
 		},
 		{
 			ID:          "HTTP_CONFIGURATION",
 			Category:    checks.CategoryHTTPProtocol,
-			Title:       "HTTP 프로토콜 설정 점검",
-			Description: "TRACE/OPTIONS 메서드 활성화, PUT/DELETE 허용 여부 등을 점검합니다.",
+			Title:       "HTTP Protocol Configuration Check",
+			Description: "Checks risky HTTP methods and protocol-level misconfigurations.",
 			Mode:        ctxpkg.Active,
 			Run:         http.CheckHTTPConfiguration,
 		},
 		{
+			ID:          "CACHE_POISONING_PASSIVE",
+			Category:    checks.CategoryHTTPProtocol,
+			Title:       "Cache Poisoning Risk Signals (Passive)",
+			Description: "Passively inspects cache header combinations for poisoning/cache-confusion risk signals.",
+			Mode:        ctxpkg.Passive,
+			Run:         http.CheckCachePoisoningPassive,
+		},
+		{
+			ID:          "REQUEST_SMUGGLING_PASSIVE",
+			Category:    checks.CategoryHTTPProtocol,
+			Title:       "Request Smuggling Risk Signals (Passive)",
+			Description: "Passively identifies protocol ambiguity indicators tied to request smuggling risk.",
+			Mode:        ctxpkg.Passive,
+			Run:         http.CheckRequestSmugglingPassive,
+		},
+		{
 			ID:          "AUTH_SESSION_HARDENING",
 			Category:    checks.CategoryAuthSession,
-			Title:       "인증/세션 강화 점검 (쿠키 속성)",
-			Description: "Secure/HttpOnly, SameSite=None + Secure 누락, Session Cookie Expires 설정 등을 점검합니다.",
+			Title:       "Auth/Session Hardening Check",
+			Description: "Checks cookie hardening attributes such as Secure, HttpOnly, SameSite, and expiration policy.",
 			Mode:        ctxpkg.Passive,
 			Run:         authsession.CheckAuthSessionHardening,
 		},
 		{
+			ID:          "AUTH_SURFACE_PROFILE",
+			Category:    checks.CategoryAuthSession,
+			Title:       "Authentication Surface Profile (Passive)",
+			Description: "Passively profiles authentication attack surface signals (paths, forms, auth headers, cookies).",
+			Mode:        ctxpkg.Passive,
+			Run:         authsession.CheckAuthSurfacePassive,
+		},
+		{
 			ID:          "SESSION_MANAGEMENT",
 			Category:    checks.CategoryAuthSession,
-			Title:       "세션 관리 점검",
-			Description: "로그인 전/후 Set-Cookie 동일 여부, 세션 재발급 여부 등을 점검합니다.",
-			Mode:        ctxpkg.Active, // Requires comparing pre/post login, so active.
+			Title:       "Session Management Check",
+			Description: "Checks session lifecycle and cookie/session behavior around authentication flows.",
+			Mode:        ctxpkg.Active,
 			Run:         authsession.CheckSessionManagement,
+		},
+		{
+			ID:          "AUTH_CONTEXT_DIFF",
+			Category:    checks.CategoryAuthSession,
+			Title:       "Authentication Context Difference Check",
+			Description: "Compares anonymous/authenticated context behavior to detect inconsistent authorization boundaries.",
+			Mode:        ctxpkg.Active,
+			Run:         authsession.CheckAuthContextDiff,
+		},
+		{
+			ID:          "PARAMETER_POLLUTION_PASSIVE",
+			Category:    checks.CategoryInputHandling,
+			Title:       "Parameter Pollution Passive Indicator",
+			Description: "Passively checks for duplicate query keys that can cause ambiguous parser behavior.",
+			Mode:        ctxpkg.Passive,
+			Run:         input.CheckParameterPollutionPassive,
 		},
 		{
 			ID:          "PARAMETER_POLLUTION",
 			Category:    checks.CategoryInputHandling,
-			Title:       "파라미터 오염 (Parameter Pollution) 점검",
-			Description: "동일 파라미터 중복 전송 시 애플리케이션 처리 방식에 대한 잠재적 취약점을 점검합니다.",
+			Title:       "Parameter Pollution Check",
+			Description: "Checks how duplicate parameters are processed and whether ambiguous parsing creates security issues.",
 			Mode:        ctxpkg.Active,
 			Run:         input.CheckParameterPollution,
 		},
 		{
+			ID:          "PATH_TRAVERSAL",
+			Category:    checks.CategoryInputHandling,
+			Title:       "Path Traversal Check",
+			Description: "Checks whether file/path parameters allow directory traversal to sensitive system files.",
+			Mode:        ctxpkg.Active,
+			Run:         input.CheckPathTraversal,
+		},
+		{
 			ID:          "CONTENT_TYPE_CONFUSION",
 			Category:    checks.CategoryAPISecurity,
-			Title:       "Content-Type 혼동 점검",
-			Description: "JSON API의 text/plain 허용, Accept 헤더 무시 등 Content-Type 처리 취약점을 점검합니다.",
+			Title:       "Content-Type Confusion Check",
+			Description: "Checks JSON API behavior for mismatched Content-Type and Accept headers.",
 			Mode:        ctxpkg.Active,
 			Run:         api.CheckContentTypeConfusion,
 		},
 		{
+			ID:          "API_CONTRACT_DRIFT_PASSIVE",
+			Category:    checks.CategoryAPISecurity,
+			Title:       "API Contract Drift Indicator (Passive)",
+			Description: "Passively detects representation/status inconsistencies in API-like endpoints.",
+			Mode:        ctxpkg.Passive,
+			Run:         api.CheckAPIContractDriftPassive,
+		},
+		{
+			ID:          "METHOD_OVERRIDE_PASSIVE",
+			Category:    checks.CategoryAPISecurity,
+			Title:       "HTTP Method Override Passive Indicator",
+			Description: "Passively checks response headers for signs that method-override headers may be accepted.",
+			Mode:        ctxpkg.Passive,
+			Run:         api.CheckMethodOverridePassive,
+		},
+		{
 			ID:          "METHOD_OVERRIDE_ALLOWED",
 			Category:    checks.CategoryAPISecurity,
-			Title:       "HTTP Method Override 허용 점검",
-			Description: "X-HTTP-Method-Override 헤더 등을 통한 HTTP Method Override 허용 여부를 점검합니다 (상태 변경 없음).",
+			Title:       "HTTP Method Override Check",
+			Description: "Checks whether unsafe method override headers are accepted.",
 			Mode:        ctxpkg.Active,
 			Run:         api.CheckMethodOverride,
 		},
 		{
 			ID:          "CORS_CONFIGURATION",
-			Category:    checks.CategoryNetwork, // CORS is network related, but could be API as well
-			Title:       "CORS 설정 오류 점검",
-			Description: "Cross-Origin Resource Sharing (CORS) 설정의 잠재적 보안 취약점을 점검합니다.",
+			Category:    checks.CategoryNetwork,
+			Title:       "CORS Configuration Check",
+			Description: "Checks CORS policy for risky trust relationships and origin handling.",
 			Mode:        ctxpkg.Passive,
 			Run:         network.CheckCORSConfiguration,
 		},
 		{
 			ID:          "INFORMATION_LEAKAGE",
 			Category:    checks.CategoryInformationLeakage,
-			Title:       "정보 누출 점검",
-			Description: "스택 트레이스, DB 에러 문자열, 프레임워크 시그니처, 디버그/메타 엔드포인트 노출 여부를 점검합니다.",
-			Mode:        ctxpkg.Passive, // Can be active depending on how deep the check goes
+			Title:       "Information Leakage Check",
+			Description: "Checks for exposed debug data, stack traces, framework fingerprints, and sensitive metadata.",
+			Mode:        ctxpkg.Passive,
 			Run:         info.CheckInformationLeakage,
+		},
+		{
+			ID:          "ATTACK_SURFACE_INTELLIGENCE",
+			Category:    checks.CategoryInfrastructure,
+			Title:       "Attack Surface Intelligence (Passive)",
+			Description: "Passively discovers external assets, subdomains, exposed endpoints, shadow APIs, and public bucket references.",
+			Mode:        ctxpkg.Passive,
+			Run:         info.CheckAttackSurfaceIntelligencePassive,
+		},
+		{
+			ID:          "ATTACK_SURFACE_INTELLIGENCE_ACTIVE",
+			Category:    checks.CategoryInfrastructure,
+			Title:       "Attack Surface Intelligence (Active Verification)",
+			Description: "Low-impact validation of shadow API reachability, exposed endpoint access, and public bucket accessibility signals.",
+			Mode:        ctxpkg.Active,
+			Run:         info.CheckAttackSurfaceIntelligenceActive,
+		},
+		{
+			ID:          "JSON_UNEXPECTED_FIELD_PASSIVE",
+			Category:    checks.CategoryAPISecurity,
+			Title:       "JSON Unexpected Field Passive Indicator",
+			Description: "Passively identifies JSON API characteristics and flags endpoints that should be actively validated for strict schema enforcement.",
+			Mode:        ctxpkg.Passive,
+			Run:         api.CheckJSONUnexpectedFieldPassive,
 		},
 		{
 			ID:          "JSON_UNEXPECTED_FIELD_INSERTION",
 			Category:    checks.CategoryAPISecurity,
-			Title:       "JSON 예상 외 필드 삽입 점검",
-			Description: "JSON 요청에 예상되지 않은 필드를 삽입했을 때 애플리케이션의 응답을 점검합니다.",
+			Title:       "JSON Unexpected Field Insertion Check",
+			Description: "Checks whether the API accepts unexpected JSON fields without validation.",
 			Mode:        ctxpkg.Active,
 			Run:         api.CheckJSONUnexpectedField,
 		},
 		{
 			ID:          "RATE_LIMIT_ABSENCE",
 			Category:    checks.CategoryAPISecurity,
-			Title:       "Rate Limit 부재 점검",
-			Description: "Retry-After, X-RateLimit-* 헤더 부재 등 Rate Limit 설정의 부재를 점검합니다.",
+			Title:       "Rate Limit Header Check (Passive)",
+			Description: "Passively checks for missing rate-limit signals such as Retry-After or X-RateLimit headers.",
 			Mode:        ctxpkg.Passive,
-			Run:         api.CheckRateLimitAbsence,
+			Run:         api.CheckRateLimitAbsencePassive,
+		},
+		{
+			ID:          "RATE_LIMIT_ENFORCEMENT",
+			Category:    checks.CategoryAPISecurity,
+			Title:       "Rate Limit Enforcement Check (Active)",
+			Description: "Sends rapid requests to verify whether practical throttling is enforced.",
+			Mode:        ctxpkg.Active,
+			Run:         api.CheckRateLimitEnforcementActive,
 		},
 		{
 			ID:          "APPLICATION_SECURITY",
 			Category:    checks.CategoryAppLogic,
-			Title:       "애플리케이션 보안 점검",
-			Description: "입력값 Reflection, IDOR 가능성, CSRF 토큰 부재 등을 점검합니다.",
-			Mode:        ctxpkg.Active,
+			Title:       "Application Security Check",
+			Description: "Checks reflection, CSRF token presence, and business-logic issues.",
+			Mode:        ctxpkg.Passive,
 			Run:         application.CheckApplicationSecurity,
+		},
+		{
+			ID:          "GRAPHQL_AUTH_BOUNDARY_ACTIVE",
+			Category:    checks.CategoryAPISecurity,
+			Title:       "GraphQL Auth Boundary Check (Active)",
+			Description: "Probes GraphQL endpoints for weak authentication/authorization boundaries with low-impact queries.",
+			Mode:        ctxpkg.Active,
+			Run:         application.CheckGraphQLAuthBoundaryActive,
+		},
+		{
+			ID:          "CSRF_TOKEN_REPLAY_ACTIVE",
+			Category:    checks.CategoryAccessControl,
+			Title:       "CSRF Token Replay Check (Active)",
+			Description: "Runs low-impact repeated form submission to detect potential CSRF token replay acceptance.",
+			Mode:        ctxpkg.Active,
+			Run:         application.CheckCSRFTokenReplayActive,
+		},
+		{
+			ID:          "IDOR_PASSIVE",
+			Category:    checks.CategoryAccessControl,
+			Title:       "IDOR Passive Indicator Check",
+			Description: "Performs non-intrusive IDOR indicator analysis from URL/resource patterns and response fields.",
+			Mode:        ctxpkg.Passive,
+			Run:         application.CheckIDORPassive,
+		},
+		{
+			ID:          "IDOR_ACTIVE",
+			Category:    checks.CategoryAccessControl,
+			Title:       "IDOR Active Verification (Low Impact)",
+			Description: "Runs low-impact (+/-1) identifier mutation checks to verify potential authorization bypass.",
+			Mode:        ctxpkg.Active,
+			Run:         application.CheckIDORActive,
 		},
 		{
 			ID:          "PACKET_ANALYSIS",
 			Category:    checks.CategoryHTTPProtocol,
-			Title:       "패킷 기반 이상 징후 분석",
-			Description: "요청/응답 패킷을 정규화하여 Content-Type 불일치, 인증 헤더 이상, CORS 조합 오류 등을 분석합니다.",
+			Title:       "Packet-based Anomaly Analysis",
+			Description: "Analyzes request/response patterns for protocol anomalies and suspicious behavior.",
 			Mode:        ctxpkg.Passive,
 			Run:         packet.CheckPacketAnomalies,
 		},
 		{
 			ID:          "WEB_CONTENT_EXPOSURE",
 			Category:    checks.CategoryFileExposure,
-			Title:       "웹 콘텐츠 및 파일 노출 점검",
-			Description: "민감한 파일 노출 및 웹 콘텐츠 보안(Mixed Content 등)을 점검합니다.",
-			Mode:        ctxpkg.Passive, // Runs in both modes, internal logic handles active probes
+			Title:       "Web Content and File Exposure Check",
+			Description: "Checks exposed content, unsafe resources, and mixed-content related risks.",
+			Mode:        ctxpkg.Passive,
 			Run:         web.CheckWebContentExposure,
+		},
+		{
+			ID:          "FILE_UPLOAD_BYPASS_ACTIVE",
+			Category:    checks.CategoryFileExposure,
+			Title:       "File Upload Bypass Signal (Active)",
+			Description: "Performs a low-impact multipart upload attempt to detect weak extension/MIME acceptance behavior.",
+			Mode:        ctxpkg.Active,
+			Run:         web.CheckFileUploadBypassActive,
+		},
+		{
+			ID:          "SQL_INJECTION_PASSIVE",
+			Category:    checks.CategoryInputHandling,
+			Title:       "SQL Injection Passive Indicator",
+			Description: "Passively detects SQL error signatures and SQL-like query patterns without sending payloads.",
+			Mode:        ctxpkg.Passive,
+			Run:         injection.CheckSQLInjectionPassive,
 		},
 		{
 			ID:          "SQL_INJECTION",
 			Category:    checks.CategoryInputHandling,
-			Title:       "SQL Injection 점검",
-			Description: "URL 파라미터에 SQL 구문을 주입하여 에러 발생 여부를 점검합니다.",
+			Title:       "SQL Injection Check",
+			Description: "Checks for error-based SQL injection indicators in query parameter handling.",
 			Mode:        ctxpkg.Active,
 			Run:         injection.CheckSQLInjection,
 		},
 		{
+			ID:          "REFLECTED_XSS_PASSIVE",
+			Category:    checks.CategoryClientSecurity,
+			Title:       "Reflected XSS Passive Indicator",
+			Description: "Passively detects potentially unsafe reflection patterns in HTML responses.",
+			Mode:        ctxpkg.Passive,
+			Run:         injection.CheckReflectedXSSPassive,
+		},
+		{
+			ID:          "DOM_XSS_PASSIVE",
+			Category:    checks.CategoryClientSecurity,
+			Title:       "DOM XSS Passive Indicator",
+			Description: "Passively detects DOM source-to-sink JavaScript flow patterns that may lead to DOM-based XSS.",
+			Mode:        ctxpkg.Passive,
+			Run:         injection.CheckDOMXSSPassive,
+		},
+		{
+			ID:          "DOM_XSS_ACTIVE",
+			Category:    checks.CategoryClientSecurity,
+			Title:       "DOM XSS Active Heuristic",
+			Description: "Actively probes query parameters and correlates DOM source-to-sink flows for DOM XSS risk validation.",
+			Mode:        ctxpkg.Active,
+			Run:         injection.CheckDOMXSSActiveHeuristic,
+		},
+		{
 			ID:          "REFLECTED_XSS",
 			Category:    checks.CategoryClientSecurity,
-			Title:       "Reflected XSS 점검",
-			Description: "URL 파라미터에 스크립트를 주입하여 응답 본문에 반사되는지 점검합니다.",
+			Title:       "Reflected XSS Check",
+			Description: "Checks whether injected payloads are reflected and executable in responses.",
 			Mode:        ctxpkg.Active,
 			Run:         injection.CheckReflectedXSS,
 		},
+		// TODO: Add boolean-based blind SQL injection check.
 		{
 			ID:          "BLIND_SQL_INJECTION",
 			Category:    checks.CategoryInputHandling,
-			Title:       "블라인드 SQL Injection 점검 (시간 기반)",
-			Description: "URL 파라미터에 시간 지연 SQL 페이로드를 주입하여 응답 시간 변화를 점검합니다.",
+			Title:       "Blind SQL Injection Check (Time-based)",
+			Description: "Checks for time-based response delays caused by SQL payload injection.",
 			Mode:        ctxpkg.Active,
 			Run:         injection.CheckBlindSQLInjection,
 		},
 		{
 			ID:          "OS_COMMAND_INJECTION",
 			Category:    checks.CategoryInputHandling,
-			Title:       "OS 커맨드 인젝션 점검 (시간 기반)",
-			Description: "URL 파라미터에 시간 지연 OS 명령어 페이로드를 주입하여 응답 시간 변화를 점검합니다.",
+			Title:       "OS Command Injection Check (Time-based)",
+			Description: "Checks for command-injection indicators via time-delay payload execution.",
 			Mode:        ctxpkg.Active,
 			Run:         injection.CheckOSCommandInjection,
 		},
-		// TODO: Stored XSS, DOM XSS, NoSQL, LDAP injection checks will be added here.
+		{
+			ID:          "SSTI_INJECTION",
+			Category:    checks.CategoryInputHandling,
+			Title:       "SSTI Check",
+			Description: "Checks server-side template injection indicators in rendered responses.",
+			Mode:        ctxpkg.Active,
+			Run:         injection.CheckSSTI,
+		},
+		{
+			ID:          "XXE_INJECTION",
+			Category:    checks.CategoryInputHandling,
+			Title:       "XXE Check",
+			Description: "Checks XML parser behavior for external entity resolution risks.",
+			Mode:        ctxpkg.Active,
+			Run:         injection.CheckXXE,
+		},
+		// TODO: Add Stored XSS, DOM XSS, NoSQL, and LDAP injection checks.
+		{
+			ID:          "SSRF_PASSIVE",
+			Category:    checks.CategorySSRF,
+			Title:       "SSRF Passive Indicator Check",
+			Description: "Passively detects SSRF-prone URL/form parameter patterns without sending attack payloads.",
+			Mode:        ctxpkg.Passive,
+			Run:         ssrf.CheckSSRFPassive,
+		},
 		{
 			ID:          "SSRF_DETECTION",
 			Category:    checks.CategorySSRF,
-			Title:       "SSRF (Server-Side Request Forgery) 탐지",
-			Description: "외부 URL 주입을 통해 서버가 임의의 요청을 보내는지 확인합니다.",
+			Title:       "SSRF Detection",
+			Description: "Checks whether the server can be abused to send requests to unintended targets.",
 			Mode:        ctxpkg.Active,
 			Run:         ssrf.CheckSSRF,
 		},
 		{
+			ID:          "TOKEN_REUSE_VALIDATION",
+			Category:    checks.CategoryAPISecurity,
+			Title:       "Leaked Token Reuse Validation",
+			Description: "Extracts token-like values from responses and verifies whether replay grants elevated access.",
+			Mode:        ctxpkg.Active,
+			Run:         tokenreuse.CheckTokenReuse,
+		},
+		{
+			ID:          "JWT_ALG_NONE_ACTIVE",
+			Category:    checks.CategoryAPISecurity,
+			Title:       "JWT alg=none Check (Active)",
+			Description: "Checks whether JWT tokens are incorrectly accepted when algorithm is downgraded to none.",
+			Mode:        ctxpkg.Active,
+			Run:         tokenreuse.CheckJWTAlgNoneActive,
+		},
+		{
 			ID:          "INSECURE_DESERIALIZATION",
 			Category:    checks.CategoryIntegrityFailures,
-			Title:       "안전하지 않은 역직렬화 탐지",
-			Description: "파라미터 및 쿠키에서 직렬화된 데이터 패턴을 식별합니다.",
-			Mode:        ctxpkg.Passive, // Can be extended to Active
+			Title:       "Insecure Deserialization Detection",
+			Description: "Checks serialized input handling for unsafe deserialization patterns.",
+			Mode:        ctxpkg.Passive,
 			Run:         deserialization.CheckInsecureDeserialization,
 		},
 		{
 			ID:          "VULNERABLE_COMPONENTS",
 			Category:    checks.CategoryVulnerableComponents,
-			Title:       "취약한 컴포넌트 버전 식별",
-			Description: "서버 헤더 및 HTML 주석을 분석하여 오래된 소프트웨어 버전을 식별합니다.",
+			Title:       "Vulnerable Component Identification",
+			Description: "Checks server/client metadata for known outdated or vulnerable components.",
 			Mode:        ctxpkg.Passive,
 			Run:         components.CheckVulnerableComponents,
 		},

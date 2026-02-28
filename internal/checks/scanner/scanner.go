@@ -1,70 +1,97 @@
 package scanner
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/url"
-	"os"
-	"strings"
+	"runtime"
 	"sync"
-	"text/tabwriter"
 	"time"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context" // New import with alias
-	"github.com/MOYARU/PRS-project/internal/checks/registry"
-	"github.com/MOYARU/PRS-project/internal/engine"
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/checks/registry"
+	"github.com/MOYARU/prs/internal/engine"
+	"github.com/MOYARU/prs/internal/report"
 )
 
 type Scanner struct {
-	Target  string
-	Mode    ctxpkg.ScanMode
-	Checks  []checks.Check
-	client  *http.Client
-	baseURL *http.Request
+	Target         string
+	Mode           ctxpkg.ScanMode
+	Checks         []checks.Check
+	client         *http.Client
+	passiveProfile string
 }
 
-func New(target string, mode ctxpkg.ScanMode, delay time.Duration) (*Scanner, error) {
-	req, err := http.NewRequest("GET", target, nil)
-	if err != nil {
+type CheckStat struct {
+	Requests int64
+	Duration time.Duration
+}
+
+func checkWorkerCount(totalChecks int, mode ctxpkg.ScanMode) int {
+	if totalChecks <= 1 {
+		return 1
+	}
+
+	// Keep per-target check fan-out bounded to avoid request bursts while still
+	// using available CPU/network parallelism.
+	limit := runtime.GOMAXPROCS(0) * 2
+	if mode == ctxpkg.Active && limit > 8 {
+		limit = 8
+	}
+	if mode == ctxpkg.Passive && limit > 12 {
+		limit = 12
+	}
+	if limit < 4 {
+		limit = 4
+	}
+	if totalChecks < limit {
+		return totalChecks
+	}
+	return limit
+}
+
+func New(target string, mode ctxpkg.ScanMode, delay time.Duration, client *http.Client, passiveProfile string) (*Scanner, error) {
+	if _, err := http.NewRequest("GET", target, nil); err != nil {
 		return nil, fmt.Errorf("invalid target URL: %w", err)
 	}
 
-	client := engine.NewHTTPClient(false, nil)
-	if delay > 0 {
-		client.Transport = &delayedTransport{
-			Transport: client.Transport,
-			Delay:     delay,
-		}
+	if client == nil {
+		client = engine.NewHTTPClient(false, nil)
 	}
 
+	profile := normalizePassiveProfile(passiveProfile)
+
 	return &Scanner{
-		Target:  target,
-		Mode:    mode,
-		Checks:  registry.DefaultChecks(),
-		client:  client,
-		baseURL: req,
+		Target:         target,
+		Mode:           mode,
+		Checks:         registry.DefaultChecks(),
+		client:         client,
+		passiveProfile: profile,
 	}, nil
 }
 
-func (s *Scanner) Run() ([]report.Finding, map[string]bool, error) {
-	// Use the scanner's client for the initial fetch
-	resp, err := s.client.Do(s.baseURL)
+// Run executes all checks with context cancellation support.
+// It returns findings by check ID, per-check execution errors, and per-check request stats.
+func (s *Scanner) Run(ctx context.Context) (map[string][]report.Finding, map[string]error, map[string]CheckStat, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.Target, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, fmt.Errorf("invalid target URL: %w", err)
 	}
 
-	// Read the response body once and store it in ctx.BodyBytes
-	// so that multiple checks can access it without re-reading from the io.ReadCloser.
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	bodyBytes, err := engine.DecodeResponseBody(resp)
 	if err != nil {
 		resp.Body.Close()
-		return nil, nil, fmt.Errorf("failed to decode response body: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to decode response body: %w", err)
 	}
 	defer resp.Body.Close() // Close the original response body after reading
 
-	initialURL := s.baseURL.URL
+	initialURL := req.URL
 	finalURL := resp.Request.URL
 	redirected := initialURL.String() != finalURL.String()
 	redirectedToHTTPS := initialURL.Scheme == "http" && finalURL.Scheme == "https"
@@ -73,129 +100,114 @@ func (s *Scanner) Run() ([]report.Finding, map[string]bool, error) {
 		redirectTarget = finalURL
 	}
 
-	ctx := &ctxpkg.Context{
+	scanCtx := &ctxpkg.Context{
 		Target:            s.Target,
+		RequestContext:    ctx,
 		Mode:              s.Mode,
 		InitialURL:        initialURL,
 		FinalURL:          finalURL,
 		Response:          resp,
-		BodyBytes:         bodyBytes, // Populated BodyBytes
+		BodyBytes:         bodyBytes,
 		RedirectTarget:    redirectTarget,
 		Redirected:        redirected,
 		RedirectedToHTTPS: redirectedToHTTPS,
-		HTTPClient:        s.client, // Pass the shared client to all checks
+		HTTPClient:        s.client,
 	}
 
-	var findings []report.Finding
-	seen := make(map[string]bool)
-	performedChecks := make(map[string]bool) // To store if a check was performed and found issues
+	resultsByCheck := make(map[string][]report.Finding)
+	checkErrors := make(map[string]error)
+	checkStats := make(map[string]CheckStat)
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	sem := make(chan struct{}, 5) // 최대 5개의 점검을 동시에 수행
-
-	// Filter checks to run based on mode to calculate total count
 	var checksToRun []checks.Check
 	for _, check := range s.Checks {
 		if s.Mode == ctxpkg.Passive && check.Mode == ctxpkg.Active {
 			continue
 		}
+		if s.Mode == ctxpkg.Passive && !allowPassiveCheckByProfile(check.ID, s.passiveProfile) {
+			continue
+		}
 		checksToRun = append(checksToRun, check)
 	}
-
-	totalChecks := len(checksToRun)
-	barWidth := 30
-	completedChecks := 0
+	sem := make(chan struct{}, checkWorkerCount(len(checksToRun), s.Mode))
 
 	for _, check := range checksToRun {
+		select {
+		case <-ctx.Done():
+			return resultsByCheck, checkErrors, checkStats, ctx.Err()
+		default:
+		}
+
 		wg.Add(1)
 		go func(c checks.Check) {
 			defer wg.Done()
-			sem <- struct{}{} // 세마포어 획득
-			results, err := c.Run(ctx)
-			<-sem // 세마포어 반납
-
-			mu.Lock()
-			defer mu.Unlock()
-
-			// 진행률 업데이트
-			completedChecks++
-			percent := float64(completedChecks) / float64(totalChecks) * 100
-			filled := int(float64(barWidth) * percent / 100)
-			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
-			fmt.Printf("\r [%s] %3.0f%% | 검사 중: %s\033[K", bar, percent, c.Title)
-
-			if err != nil {
-				// 병렬 처리 중 에러 발생 시 로그만 남기고 계속 진행 (전체 중단 방지)
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
 				return
 			}
 
-			if len(results) > 0 {
-				performedChecks[c.ID] = true
-			} else {
-				performedChecks[c.ID] = false
+			mt := &engine.MetricsTransport{Base: s.client.Transport}
+			checkClient := *s.client
+			checkClient.Transport = mt
+			localCtx := *scanCtx
+			localCtx.HTTPClient = &checkClient
+
+			results, err := c.Run(&localCtx)
+			reqCount, reqDuration := mt.Snapshot()
+
+			mu.Lock()
+			defer mu.Unlock()
+			checkStats[c.ID] = CheckStat{
+				Requests: reqCount,
+				Duration: reqDuration,
 			}
 
-			for _, f := range results {
-				if _, ok := seen[f.ID]; !ok {
-					findings = append(findings, f)
-					seen[f.ID] = true
+			if err != nil {
+				if _, exists := checkErrors[c.ID]; !exists {
+					checkErrors[c.ID] = err
 				}
+				return
 			}
+
+			resultsByCheck[c.ID] = results
 		}(check)
 	}
 	wg.Wait()
 
-	// Final 100% Bar
-	fmt.Printf("\r [%s] 100%% | 검사 완료!             \n", strings.Repeat("█", barWidth))
-
-	s.printSummary(findings)
-
-	return findings, performedChecks, nil
+	return resultsByCheck, checkErrors, checkStats, nil
 }
 
-func (s *Scanner) printSummary(findings []report.Finding) {
-	counts := make(map[report.Severity]int)
-	for _, f := range findings {
-		counts[f.Severity]++
+func normalizePassiveProfile(v string) string {
+	switch v {
+	case "strict", "aggressive", "balanced":
+		return v
+	default:
+		return "balanced"
 	}
-
-	fmt.Println("\n" + strings.Repeat("=", 45))
-	fmt.Println("취약점 스캔 요약 리포트")
-	fmt.Println(strings.Repeat("=", 45))
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, " 심각도 (Severity)\t 발견 수 (Count)\t")
-	fmt.Fprintln(w, " -----------------\t ---------------\t")
-
-	// Define order of severity for display
-	order := []report.Severity{report.SeverityHigh, report.SeverityMedium, report.SeverityLow, report.SeverityInfo}
-
-	total := 0
-	for _, sev := range order {
-		count := counts[sev]
-		total += count
-		fmt.Fprintf(w, " %v\t %d\t\n", sev, count)
-	}
-	fmt.Fprintln(w, " -----------------\t ---------------\t")
-	fmt.Fprintf(w, " 합계 (Total)\t %d\t\n", total)
-	w.Flush()
-	fmt.Println(strings.Repeat("=", 45))
-	fmt.Println()
 }
 
-// delayedTransport applies a delay before each request.
-type delayedTransport struct {
-	Transport http.RoundTripper
-	Delay     time.Duration
-}
-
-func (t *delayedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if t.Delay > 0 {
-		time.Sleep(t.Delay)
+func allowPassiveCheckByProfile(checkID, profile string) bool {
+	if profile == "aggressive" || profile == "balanced" {
+		return true
 	}
-	if t.Transport == nil {
-		return http.DefaultTransport.RoundTrip(req)
+	// strict profile: prefer low-noise, concrete passive checks; skip weak heuristic indicators.
+	switch checkID {
+	case "PARAMETER_POLLUTION_PASSIVE",
+		"METHOD_OVERRIDE_PASSIVE",
+		"SSRF_PASSIVE",
+		"SQL_INJECTION_PASSIVE",
+		"REFLECTED_XSS_PASSIVE",
+		"JSON_UNEXPECTED_FIELD_PASSIVE",
+		"AUTH_SURFACE_PROFILE",
+		"ATTACK_SURFACE_INTELLIGENCE",
+		"CACHE_VARY_KEY_WEAK",
+		"REQUEST_SMUGGLING_PASSIVE",
+		"API_CONTRACT_DRIFT_PASSIVE":
+		return false
+	default:
+		return true
 	}
-	return t.Transport.RoundTrip(req)
 }

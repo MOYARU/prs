@@ -1,0 +1,20 @@
+# PRS scan policy
+
+max_concurrency: 5
+request_budget: 0
+active_cross_domain: false
+passive_profile: balanced
+top_remediation_limit: 10
+asi_max_shadow_candidates: 30
+asi_require_api_token: true
+infoleak_min_stack_signals: 2
+infoleak_min_body_len: 50
+secrets_entropy_min: 3.2
+sqli_min_diff_bytes: 80
+sqli_min_diff_ratio: 0.12
+
+# Custom redaction regex list
+redaction_patterns:
+  - '(?i)x-api-key[[:space:]]*[:=][[:space:]]*[A-Za-z0-9_-]{16,}'
+  - '(?i)aws_secret_access_key[[:space:]]*[:=][[:space:]]*[A-Za-z0-9/+=]{20,}'
+  - '(?i)private_key[[:space:]]*[:=][[:space:]]*-----BEGIN[[:print:][:space:]]*END'

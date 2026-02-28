@@ -5,50 +5,34 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context" // New import with alias
-	"github.com/MOYARU/PRS-project/internal/engine"
-	msges "github.com/MOYARU/PRS-project/internal/messages" // New import for messages
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	"github.com/MOYARU/prs/internal/engine"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
-// CheckAuthSessionHardening performs various checks related to authentication and session management hardening.
-// This includes cookie attributes like Secure, HttpOnly, SameSite, and expiration.
 func CheckAuthSessionHardening(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
-	// Check for login page HTTPS, which was part of the original AUTH_SESSION_CONFIGURATION
-	loginPageURL := findLoginPage(ctx.InitialURL.String())
+	loginPageURL := findLoginPage(ctx.InitialURL.String(), ctx.HTTPClient)
 	if loginPageURL != "" {
 		findings = append(findings, checkLoginPageHTTPS(ctx, loginPageURL)...)
 	}
 
-	// Check session cookie attributes and expiration
 	findings = append(findings, checkCookieAttributes(ctx.Response)...)
 
 	return findings, nil
 }
 
-// CheckSessionManagement performs active checks related to session management, like re-issuance.
-// This check is highly dependent on the ability to perform authenticated requests.
 func CheckSessionManagement(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
 	if ctx.Mode != ctxpkg.Active {
-		return findings, nil // Session Management typically requires active testing (login simulation)
+		return findings, nil
 	}
-
-	// Actual implementation for 'Set-Cookie identical before/after login' and 'No session re-issuance'
-	// would require:
-	// 1. Identifying login endpoints (already have findLoginPage, but need more robust detection).
-	// 2. Having a mechanism to provide credentials and perform login.
-	// 3. Capturing pre-login cookies.
-	// 4. Performing login and capturing post-login cookies.
-	// 5. Comparing session IDs/cookies to detect re-issuance or changes.
-
-	// This is a complex active check. For now, it remains a placeholder encouraging manual review or
-	// a note for future advanced active scanning features.
 	msg := msges.GetMessage("SESSION_MANAGEMENT_MANUAL_REVIEW_NEEDED")
 	findings = append(findings, report.Finding{
 		ID:                         "SESSION_MANAGEMENT_MANUAL_REVIEW_NEEDED",
@@ -64,33 +48,61 @@ func CheckSessionManagement(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	return findings, nil
 }
 
-// findLoginPage attempts to find a login page URL.
-// This is a simplified placeholder; a real implementation would involve:
-// - Analyzing HTML for links like /login, /signin, /account
-// - Checking common login path patterns
-// - Potentially using a wordlist
-func findLoginPage(targetURL string) string {
+func findLoginPage(targetURL string, client *http.Client) string {
 	u, err := url.Parse(targetURL)
 	if err != nil {
 		return ""
 	}
 
+	var foundURL string
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 5)
+
 	// Common login paths
-	for _, path := range []string{"/login", "/signin", "/account/login", "/user/login", "/admin/login"} {
-		testURL := u.Scheme + "://" + u.Host + path
-		resp, err := engine.FetchWithTLSConfig(testURL, nil) // Use default client
-		if err == nil && resp.Response != nil && resp.Response.StatusCode == http.StatusOK {
-			resp.Response.Body.Close()
-			return testURL
-		}
-		if resp != nil && resp.Response != nil {
-			resp.Response.Body.Close()
-		}
+	paths := []string{"/login", "/signin", "/account/login", "/user/login", "/admin/login"}
+	for _, path := range paths {
+		wg.Add(1)
+		go func(path string) {
+			defer wg.Done()
+
+			mu.Lock()
+			if foundURL != "" {
+				mu.Unlock()
+				return
+			}
+			mu.Unlock()
+
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			testURL := u.Scheme + "://" + u.Host + path
+			req, err := http.NewRequest("GET", testURL, nil)
+			if err != nil {
+				return
+			}
+			resp, err := client.Do(req)
+			if err == nil && resp != nil && resp.StatusCode == http.StatusOK {
+				// Check body for login keywords to reduce false positives
+				bodyBytes, _ := engine.DecodeResponseBody(resp)
+				resp.Body.Close()
+				bodyString := strings.ToLower(string(bodyBytes))
+				if strings.Contains(bodyString, "password") || strings.Contains(bodyString, "login") || strings.Contains(bodyString, "signin") {
+					mu.Lock()
+					if foundURL == "" {
+						foundURL = testURL
+					}
+					mu.Unlock()
+				}
+			} else if resp != nil {
+				resp.Body.Close()
+			}
+		}(path)
 	}
-	return ""
+	wg.Wait()
+	return foundURL
 }
 
-// checkLoginPageHTTPS checks if the login page is not using HTTPS.
 func checkLoginPageHTTPS(ctx *ctxpkg.Context, loginPageURL string) []report.Finding {
 	var findings []report.Finding
 	u, err := url.Parse(loginPageURL)
@@ -113,7 +125,6 @@ func checkLoginPageHTTPS(ctx *ctxpkg.Context, loginPageURL string) []report.Find
 	return findings
 }
 
-// checkCookieAttributes checks for Secure, HttpOnly, SameSite=None + Secure, and session cookie expiration.
 func checkCookieAttributes(resp *http.Response) []report.Finding {
 	if resp == nil {
 		return nil
@@ -123,15 +134,13 @@ func checkCookieAttributes(resp *http.Response) []report.Finding {
 	cookies := resp.Cookies()
 
 	for _, cookie := range cookies {
-		// Heuristic: identify potential session cookies.
-		// This is a simplification; a more robust check would involve common session cookie names.
-		// Or if there's no specific session cookie, any cookie without these flags is a risk.
 		isPotentiallySessionRelated := strings.Contains(strings.ToLower(cookie.Name), "session") ||
 			strings.Contains(strings.ToLower(cookie.Name), "jsessionid") ||
 			strings.Contains(strings.ToLower(cookie.Name), "phpsessid") ||
 			strings.Contains(strings.ToLower(cookie.Name), "aspsessionid") ||
 			strings.Contains(strings.ToLower(cookie.Name), "auth") ||
-			strings.Contains(strings.ToLower(cookie.Name), "id")
+			strings.Contains(strings.ToLower(cookie.Name), "id") ||
+			strings.Contains(strings.ToLower(cookie.Name), "_session")
 
 		// Secure Flag
 		if !cookie.Secure && strings.HasPrefix(strings.ToLower(resp.Request.URL.Scheme), "https") {
@@ -162,7 +171,7 @@ func checkCookieAttributes(resp *http.Response) []report.Finding {
 		}
 
 		// Session Cookie Expiration
-		if isPotentiallySessionRelated && cookie.Expires.IsZero() {
+		if isPotentiallySessionRelated && cookie.Expires.IsZero() && cookie.MaxAge <= 0 {
 			msg := msges.GetMessage("SESSION_COOKIE_NO_EXPIRATION")
 			findings = append(findings, report.Finding{
 				ID:                         "SESSION_COOKIE_NO_EXPIRATION",
@@ -176,11 +185,8 @@ func checkCookieAttributes(resp *http.Response) []report.Finding {
 		}
 	}
 
-	// Check SameSite=None without Secure separately by inspecting raw headers
-	// This avoids O(N*M) complexity and incorrect attribution in the loop above.
 	for _, setCookieHeader := range resp.Header["Set-Cookie"] {
 		if strings.Contains(setCookieHeader, "SameSite=None") && !strings.Contains(setCookieHeader, "Secure") {
-			// Try to extract cookie name for better reporting
 			cookieName := "Unknown"
 			parts := strings.Split(setCookieHeader, ";")
 			if len(parts) > 0 {

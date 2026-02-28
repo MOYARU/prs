@@ -2,24 +2,30 @@ package deserialization
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 
-	"github.com/MOYARU/PRS-project/internal/checks"
-	ctxpkg "github.com/MOYARU/PRS-project/internal/checks/context"
-	msges "github.com/MOYARU/PRS-project/internal/messages"
-	"github.com/MOYARU/PRS-project/internal/report"
+	"github.com/MOYARU/prs/internal/checks"
+	ctxpkg "github.com/MOYARU/prs/internal/checks/context"
+	msges "github.com/MOYARU/prs/internal/messages"
+	"github.com/MOYARU/prs/internal/report"
 )
 
-// CheckInsecureDeserialization checks for patterns indicating serialized data usage.
+var (
+	phpObjectPattern = regexp.MustCompile(`^[OCaidsbN]:\d+[:;{]`)
+)
+
 func CheckInsecureDeserialization(ctx *ctxpkg.Context) ([]report.Finding, error) {
 	var findings []report.Finding
 
-	// This check can be passive (inspecting values) or active (injecting).
-	// We start with passive inspection of parameters and cookies.
+	// Active Mode: Payload Injection (Optional/Safe check)
+	if ctx.Mode == ctxpkg.Active {
+		// TODO: Implement safe gadget probe (e.g., sleep or specific echo)
+	}
 
-	// 1. Inspect Query Parameters
 	u, _ := url.Parse(ctx.FinalURL.String())
 	for param, values := range u.Query() {
 		for _, val := range values {
@@ -29,7 +35,6 @@ func CheckInsecureDeserialization(ctx *ctxpkg.Context) ([]report.Finding, error)
 		}
 	}
 
-	// 2. Inspect Cookies
 	if ctx.Response != nil {
 		for _, cookie := range ctx.Response.Cookies() {
 			if isSerializedData(cookie.Value) {
@@ -42,29 +47,47 @@ func CheckInsecureDeserialization(ctx *ctxpkg.Context) ([]report.Finding, error)
 }
 
 func isSerializedData(value string) bool {
+	// 0. Try URL Decode first
+	if unescaped, err := url.QueryUnescape(value); err == nil && unescaped != value {
+		value = unescaped
+	}
+
 	// 1. Check for Base64 encoding first
 	decoded, err := base64.StdEncoding.DecodeString(value)
 	if err == nil && len(decoded) > 4 {
-		// Check for Java Serialization Magic Bytes (AC ED 00 05)
-		if strings.HasPrefix(string(decoded), "\xac\xed\x00\x05") {
-			return true
-		}
-		// Check for Python Pickle (simple heuristic: starts with ( and ends with .)
-		// or specific opcodes like cos\nsystem
-		if strings.Contains(string(decoded), "cos") && strings.Contains(string(decoded), "system") {
+		if checkSignatures(string(decoded)) {
 			return true
 		}
 	}
 
-	// 2. Check for PHP Serialization (O:digit:"class_name"...)
-	// Simple regex-like check: O:[0-9]+:
-	if strings.HasPrefix(value, "O:") || strings.HasPrefix(value, "a:") {
-		// Further validation could be done here
+	// 2. Check for Hex encoding
+	if decodedHex, err := hex.DecodeString(value); err == nil && len(decodedHex) > 4 {
+		if checkSignatures(string(decodedHex)) {
+			return true
+		}
+	}
+
+	// 3. Check raw string
+	return checkSignatures(value)
+}
+
+func checkSignatures(value string) bool {
+	// Java Serialization: AC ED 00 05
+	// Stricter: Look for 'sr' (0x73 0x72) which is TC_CLASSDESC often following magic bytes
+	if strings.HasPrefix(value, "\xac\xed\x00\x05") && strings.Contains(value, "\x73\x72") {
 		return true
 	}
 
-	// 3. Check for Python Pickle (unencoded)
-	if strings.HasPrefix(value, "(lp") || strings.HasPrefix(value, "gASV") { // gASV is base64 encoded pickle header often
+	// PHP Serialization
+	if phpObjectPattern.MatchString(value) {
+		// Simple heuristic for PHP object or array
+		return true
+	}
+
+	// Python Pickle
+	// Stricter: "cos" + "system" + "R" (REDUCE opcode) or specific protocol versions
+	if (strings.Contains(value, "cos") && strings.Contains(value, "system") && strings.Contains(value, "R")) ||
+		strings.HasPrefix(value, "\x80\x03") || strings.HasPrefix(value, "\x80\x04") {
 		return true
 	}
 
